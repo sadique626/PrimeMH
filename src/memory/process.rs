@@ -162,7 +162,8 @@ impl D2RInstance {
 
         let base_name = String::from_utf8_lossy(&base_name_vec);
 
-        if base_name.to_lowercase() == "D2R.exe".to_lowercase() {
+        let lower = base_name.to_lowercase();
+        if lower == "d2r.exe" || lower == "d2rloader.exe" {
             unsafe { Some(maybe_hmod.assume_init() as usize) }
         } else {
             None
@@ -211,6 +212,9 @@ impl D2RInstance {
     }
 
     pub fn find_offsets(pid: u32) -> Offsets {
+        if super::instance_manager::is_loader_pid(pid) {
+            return Self::d2rloader_offsets();
+        }
 
         // let pattern = String::from("48 03 C7 49 8B 8C C6");
         // let unit_table = Self::scan_pattern(pid, pattern, 7, 0);
@@ -258,6 +262,23 @@ impl D2RInstance {
             roster: roster as u64,
             panels: panels as u64,
             keybindings: keybindings as u64,
+        }
+    }
+
+    /// Offsets for D2RLoader 1.3.1-beta (running D2R 3.3.93847 data layout).
+    /// Found by scanning the live D2RLoader process; 0 = not used / disabled
+    /// (read_mem_offset returns a default value for offset 0).
+    fn d2rloader_offsets() -> Offsets {
+        log::info!("D2RLoader detected - using D2RLoader offsets");
+        Offsets {
+            unit_table: 0x2A23910,
+            ui_offset: 0x2A2ADA0,     // MenuStates (in_game, inventory, ... pause +0x09, automap +0x0A)
+            expansion: 0,             // not used by PrimeMH
+            last_game_name: 0x2A234C0,
+            hover: 0,                 // not located yet; item hover tooltips disabled
+            roster: 0x2A4DB90,
+            panels: 0,                // not used by PrimeMH
+            keybindings: 0x22AA310,
         }
     }
 

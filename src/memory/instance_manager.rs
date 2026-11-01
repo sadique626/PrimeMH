@@ -44,18 +44,28 @@ fn get_d2r_process_pids() -> Vec<DWORD> {
 
                 // Check the process name for each PID
                 let process_name = get_process_name(pid);
-                if process_name.ends_with("D2R.exe") {
+                if is_game_exe(&process_name) {
                     log::info!("Found D2R.exe process with PID: {} {:?}", pid, process_name);
                     pids.push(pid);
                 }
             }
         }
     }
-    log::info!("Found {} D2R.exe processes", pids.len());
+    log::info!("Found {} D2R.exe / D2RLoader.exe processes", pids.len());
     pids
 }
 
-fn get_process_name(pid: DWORD) -> String {
+/// D2R.exe (retail) or D2RLoader.exe (D2RLoader / D2R Reimagined)
+pub fn is_game_exe(path: &str) -> bool {
+    let lower = path.to_lowercase();
+    lower.ends_with("\\d2r.exe") || lower.ends_with("\\d2rloader.exe") || lower == "d2r.exe" || lower == "d2rloader.exe"
+}
+
+pub fn is_loader_pid(pid: DWORD) -> bool {
+    get_process_name(pid).to_lowercase().ends_with("d2rloader.exe")
+}
+
+pub fn get_process_name(pid: DWORD) -> String {
     unsafe {
         let process_handle = OpenProcess(PROCESS_QUERY_INFORMATION, 0, pid);
         
