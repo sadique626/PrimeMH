@@ -398,12 +398,12 @@ fn draw(app: &mut App, gfx: &mut Graphics, plugins: &mut Plugins, state: &mut St
                 }
             }
 
-            let text_duration = 6;
+            let text_duration = 0; // startup splash text disabled
             let splash_text = format!("Joffreybesos' Map overlay (PrimeMH)");
             let mut draw = gfx.create_draw();
             draw.mask(Some(&mask));
             let elapsed_time = SystemTime::now().duration_since(state.launch_time).expect("Fuck you!");
-            if elapsed_time <= Duration::from_secs(text_duration.clone()) {
+            if elapsed_time < Duration::from_secs(text_duration.clone()) {
                 draw.text(&state.fonts.blizzard_font, &splash_text)
                     .position(app.window().width() as f32 * 0.5, app.window().height() as f32 * 0.1)
                     .size(52.0)
