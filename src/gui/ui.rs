@@ -307,6 +307,7 @@ fn update(app: &mut App, state: &mut State) {
                     state.seed_data.update_names();
                     state.seed_data.process_map_data();
                 }
+                state.live_map.log_units(game_data.seed_values.level, &game_data.npcs);
                 state.game_data = Some(game_data);
             } else {
                 if state.game_data.is_some() {

@@ -36,10 +36,10 @@ pub struct NPCUnit {
 
 impl NPCUnit {
     pub fn new(d2rprocess: &D2RInstance, unit: Unit) -> Self {
-        let txt_file_no: NPC = match NPC::from_u32(unit.txt_file_no) {
-            Some(txt_file_no) => txt_file_no,
-            None => return NPCUnit::default(),
-        };
+        // Mods (e.g. Reimagined) add monsters past the end of the original MonStats.txt.
+        // Those ids are unknown here, but they are still monsters, so draw them as such.
+        let known = NPC::from_u32(unit.txt_file_no).filter(|n| !matches!(n, NPC::Unknown | NPC::NpcNotApplicable));
+        let txt_file_no: NPC = known.clone().unwrap_or(NPC::Unknown);
         let mode = match NPCMode::from_u32(unit.mode) {
             Some(mode) => mode,
             None => return NPCUnit::default(),
@@ -50,7 +50,13 @@ impl NPCUnit {
         let monster_stats = Self::get_monster_stats(d2rprocess, unit);
         let monster_enchants = Self::get_monster_enchants(d2rprocess, unit);
 
-        let npc_type = get_type(&txt_file_no);
+        let npc_type = if known.is_some() {
+            get_type(&txt_file_no)
+        } else if unit.p_unit_data != 0 {
+            NPCType::Monster
+        } else {
+            return NPCUnit::default();
+        };
         NPCUnit {
             unit_id: unit.unit_id,
             txt_file_no,

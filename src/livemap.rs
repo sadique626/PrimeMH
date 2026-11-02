@@ -64,6 +64,7 @@ pub struct LiveMap {
     last_scan: Instant,
     last_build: Instant,
     last_fail_log: Option<Instant>,
+    last_unit_log: Option<Instant>,
 }
 
 impl Default for LiveMap {
@@ -76,6 +77,7 @@ impl Default for LiveMap {
             last_scan: Instant::now() - SCAN_INTERVAL,
             last_build: Instant::now() - BUILD_INTERVAL,
             last_fail_log: None,
+            last_unit_log: None,
         }
     }
 }
@@ -138,6 +140,24 @@ impl LiveMap {
             }
         }
         changed
+    }
+
+    /// While on a custom level, log what kinds of monsters PrimeMH can see (every 15s),
+    /// so missing monster dots can be diagnosed from primemh.log.
+    pub fn log_units(&mut self, current_level: u32, npcs: &[crate::types::npc::NPCUnit]) {
+        if current_level <= LAST_VANILLA_LEVEL {
+            return;
+        }
+        if self.last_unit_log.map_or(false, |t| t.elapsed() < Duration::from_secs(15)) {
+            return;
+        }
+        self.last_unit_log = Some(Instant::now());
+        let mut counts: HashMap<String, usize> = HashMap::new();
+        for n in npcs {
+            *counts.entry(format!("{:?}/{:?}", n.npc_type, n.monster_flag)).or_default() += 1;
+        }
+        let unknown = npcs.iter().filter(|n| matches!(n.txt_file_no, crate::types::npc::NPC::Unknown)).count();
+        log::info!("Live map level {}: {} units, {} with mod-added ids, by type {:?}", current_level, npcs.len(), unknown, counts);
     }
 
     fn player_room(d2r: &D2RInstance, player: &PlayerUnit) -> u64 {
