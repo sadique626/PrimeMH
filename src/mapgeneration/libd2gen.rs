@@ -13,7 +13,7 @@
 use std::cell::RefCell;
 use std::time::Instant;
 
-use libd2::drlg::{Collision, Difficulty, Generator, LevelRef, Preset};
+use libd2::drlg::{Collision, Difficulty, LevelKind, Generator, LevelRef, Preset};
 
 use super::jsondata::{LevelData, Object, Offset, Size, SeedData};
 
@@ -106,10 +106,13 @@ fn convert_level(level: &LevelRef<'_>, map_seed: u32) -> Option<LevelData> {
     if x1 < x0 || y1 < y0 {
         return None; // no floor at all
     }
-    let x0 = x0.saturating_sub(2);
-    let y0 = y0.saturating_sub(2);
-    let x1 = (x1 + 2).min(width - 1);
-    let y1 = (y1 + 2).min(height - 1);
+    let (x0, y0, x1, y1) = if matches!(level.kind(), LevelKind::Maze) {
+        (x0.saturating_sub(2), y0.saturating_sub(2), (x1 + 2).min(width - 1), (y1 + 2).min(height - 1))
+    } else {
+        // only random dungeons are cropped; fixed layouts keep their original coordinates
+        // (PrimeMH has hard-coded positions for some of them, e.g. Nihlathak in Halls of Vaught)
+        (0, 0, width - 1, height - 1)
+    };
     let (cw, ch) = (x1 - x0 + 1, y1 - y0 + 1);
 
     let map: Vec<Vec<u64>> = (y0..=y1)
@@ -196,6 +199,15 @@ pub fn staff_tomb_level(map_seed: u32) -> u32 {
     }
 }
 
+/// Objects.txt name for an object id. libd2 looks names up by file row, but the file has an
+/// "Expansion" divider row before id 410 that the game skips, so from there on the row is one
+/// further down than the id. Without this, e.g. the Halls of Pain waypoint (496) reads as
+/// "magic shrine".
+fn object_name(id: i32) -> String {
+    let row = if id >= 410 { id + 1 } else { id };
+    libd2::drlg::object_name(libd2::drlg::ObjectId(row))
+}
+
 fn dist(ax: i32, ay: i32, bx: i32, by: i32) -> i32 {
     (ax - bx).abs() + (ay - by).abs()
 }
@@ -215,7 +227,7 @@ fn convert_presets(level: &LevelRef<'_>, map_seed: u32) -> Vec<Object> {
         let y = p.at.y as u32;
         match p.what {
             Preset::Object(obj_id) => {
-                let name = libd2::drlg::object_name(obj_id);
+                let name = object_name(obj_id.0);
                 let class = match obj_id.0 {
                     580 | 581 => "chest-super",
                     _ => "",
