@@ -1,4 +1,4 @@
 /.vscode
 /target
 primemh.log
-bin/d2lod
+bin/d2lod/vendor/libd2/upstream
