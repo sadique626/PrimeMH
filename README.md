@@ -2,7 +2,7 @@
 
 # THIS TOOL IS DETECTED BY BLIZZARD, RUNNING THIS MAY RESULT IN A BAN
 
-A real-time map overlay tool for **Diablo II: Resurrected**, written in Rust. PrimeMH reads game memory to render an interactive map overlay with monster tracking, item filtering, pathfinding, etc all as a transparent, always-on-top window.
+A real-time map overlay tool for **Diablo II: Resurrected**, written in Rust. PrimeMH reads game memory to render an interactive map overlay with monster tracking, pathfinding, etc all as a transparent, always-on-top window.
 
 First released 2024-02-12, it received a ban wave on 2026-02-26.
 
@@ -14,13 +14,10 @@ Discord server https://discord.gg/CGmHS3xFWc
 - **Map Overlay** — Renders the current area map as a transparent overlay on top of D2R. Supports center, top-left, and top-right positioning with configurable opacity and scale.
 - **Monster Display** — Shows normal, minion, champion, unique, and boss monsters on the map with customizable colors, sizes, and immunity indicators.
 - **Missile Tracking** — Visualises incoming projectiles (fire, cold, poison, lightning, physical, magic) with per-element color and size settings.
-- **Item Log & Alerts** — On-screen item log with configurable duration, ground item alerts, sound notifications, and text-to-speech voice callouts.
-- **Item Filter** — YAML-based item filter (`itemfilter.yml`) to define rules by item quality, sockets, ethereal status, and more.
 - **Buff Bar** — Displays active buffs/debuffs with icons and countdown timers.
 - **Lines & Pathfinding** — Draws lines and computed paths to waypoints, level exits, quest objectives, and bosses.
 - **Points of Interest** — Marks portals (with area names), shrines (with labels), and chests on the map.
 - **Party Info** — Shows information about other players in your party, including hostile status detection.
-- **Item Tooltips** — Enhanced hover tooltips for items.
 - **Configurable Hotkeys** — Toggle map, toggle menu, and exit hotkeys with modifier key support (Ctrl, Alt, Shift, Win).
 - **Multi-Language Support** — English, German, Spanish, French, Italian, Korean, Polish, and Chinese.
 - **Map Caching** — Generated map data is cached per seed/difficulty for fast subsequent loads.
@@ -101,26 +98,7 @@ Modifier prefixes: `^` Ctrl, `!` Alt, `+` Shift, `#` Win.
 
 ### Additional Sections
 
-See `settings.toml` for full configuration of: **monsters**, **missiles**, **item_log**, **buffbar**, **lines**, **chests**, **portals**, **shrines**, **item_hover**, and **party_info**.
-
-## Item Filter
-
-Define item filter rules in **`itemfilter.yml`**. Each entry is an item base name with a list of matching conditions:
-
-```yaml
-Shako:
-  - quality: [unique]     # Harlequin Crest
-    ethereal: false
-
-Archon Plate:
-  - quality: [normal, superior]
-    sockets: [3, 4]
-  - quality: [normal]
-    sockets: [0]
-    ethereal: true         # Eth base for Cube socketing
-```
-
-Supported filter fields: `quality`, `sockets`, `ethereal`.
+See `settings.toml` for full configuration of: **monsters**, **missiles**, **buffbar**, **lines**, **chests**, **portals**, **shrines**, and **party_info**.
 
 ## Project Structure
 
@@ -139,11 +117,8 @@ src/
 │   ├── draw_path.rs        # Pathfinding visualisation
 │   ├── draw_presets.rs     # Preset map markers
 │   ├── draw_buff_bar.rs    # Buff/debuff bar
-│   ├── draw_item_log.rs    # Item drop log
-│   ├── draw_item_tooltip.rs# Item hover tooltips
 │   ├── draw_party_info.rs  # Party member info
 │   ├── hotkeys.rs          # Hotkey parsing and detection
-│   ├── play_sound.rs       # Audio alerts
 │   └── images.rs           # Image/icon loading
 ├── memory/                 # D2R process memory reading
 │   ├── process.rs          # Process attachment and memory reads
@@ -151,7 +126,7 @@ src/
 │   ├── structs.rs          # Memory structure definitions
 │   ├── decrypt.rs          # Value decryption
 │   ├── instance_manager.rs # D2R window detection
-│   └── types/              # Typed game data (items, NPCs, buffs, etc.)
+│   └── types/              # Typed game data (NPCs, buffs, etc.)
 ├── mapgeneration/          # Map data generation and processing
 │   ├── blacha.rs           # d2-mapgen integration
 │   ├── cache.rs            # Seed data caching
@@ -174,8 +149,6 @@ src/
 - **[egui](https://crates.io/crates/egui)** — immediate-mode GUI for the settings panel
 - **[winapi](https://crates.io/crates/winapi)** — Win32 API for overlay and memory access
 - **[pathfinding](https://crates.io/crates/pathfinding)** — A* pathfinding algorithms
-- **[rodio](https://crates.io/crates/rodio)** — audio playback for item alerts
-- **[sapi-lite](https://crates.io/crates/sapi-lite)** — Windows Speech API for voice alerts
 - **[serde](https://crates.io/crates/serde)** / **[toml](https://crates.io/crates/toml)** / **[serde_yaml](https://crates.io/crates/serde_yaml)** — configuration and data serialization
 
 ## Supported Languages

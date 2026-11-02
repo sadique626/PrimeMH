@@ -5,7 +5,6 @@ use self::{player::PlayerUnit, missile::MissileUnit};
 
 pub mod buffs;
 pub mod item;
-pub mod item_filter;
 pub mod menus;
 pub mod missile;
 pub mod npc;

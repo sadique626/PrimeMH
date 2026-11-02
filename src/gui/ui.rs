@@ -12,7 +12,6 @@ use winapi::um::winuser::{
     WS_EX_LAYERED, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_EX_WINDOWEDGE, WS_MINIMIZEBOX, WS_SYSMENU, WS_VISIBLE,
 };
 
-use crate::gui::draw_item_log::clear_item_log;
 use crate::memory::instance_manager::{get_process_pid_and_window_handle, WindowInfo};
 use crate::types::buffs::check_buff_timers;
 use crate::gui::draw_map::draw_map;
@@ -20,7 +19,6 @@ use crate::gui::Fonts;
 use crate::memory::gamedata;
 use crate::memory::process::D2RWindowArea;
 use crate::settings::MapPosition;
-use crate::types::item_filter::ItemFilters;
 use crate::LOCALISATION;
 use crate::{
     mapgeneration::{self, jsondata::SeedData},
@@ -30,8 +28,6 @@ use crate::{
 use winapi::shared::windef::{HWND, POINT};
 
 use super::draw_buff_bar::draw_buff_bar;
-use super::draw_item_log::draw_item_log;
-use super::draw_item_tooltip::draw_item_tooltip;
 use super::draw_lines::draw_lines;
 use super::draw_objects::draw_objects;
 use super::draw_party_info::draw_party_info;
@@ -109,14 +105,6 @@ fn init(gfx: &mut Graphics) -> State {
     let images = images::load_images(gfx);
     log::info!("Loaded images");
 
-    let item_filters = match ItemFilters::load() {
-        Some(item_filters) => item_filters,
-        None => {
-            let localisation = LOCALISATION.lock().unwrap();
-            panic!("{}", localisation.get_primemh("error6"))
-        }
-    };
-
     let windows: Vec<WindowInfo> = get_process_pid_and_window_handle();
     log::info!("Found {} D2R windows {:?}", windows.len(), windows);
     if windows.len() == 0 {
@@ -185,7 +173,6 @@ fn init(gfx: &mut Graphics) -> State {
         game_data: None,
         fonts,
         images,
-        item_filters,
         item_frame: 0,
         egui_rect: Rect {
             min: Pos2::ZERO,
@@ -219,7 +206,6 @@ pub(crate) struct State {
     pub game_data: Option<GameData>,
     pub fonts: Fonts,
     pub images: HashMap<String, Texture>,
-    pub item_filters: ItemFilters,
     pub item_frame: i32,
     pub egui_rect: Rect,
     pub egui_hovering: bool,
@@ -313,7 +299,6 @@ fn update(app: &mut App, state: &mut State) {
                 if state.game_data.is_some() {
                     log::debug!("Game data not found, in menu");
                 }
-                clear_item_log();
                 state.game_data = None;
             }
 
@@ -511,18 +496,6 @@ fn draw(app: &mut App, gfx: &mut Graphics, plugins: &mut Plugins, state: &mut St
                             draw_objects(&mut draw, game_data, &state.settings, &width, &height, &state.images, &state.fonts);
                             draw.mask(None);
 
-                            draw_item_log(
-                                &mut draw,
-                                game_data,
-                                &state.settings,
-                                &width,
-                                &height,
-                                &state.fonts.exocet_font,
-                                state.item_frame,
-                                &state.item_filters,
-                            );
-
-                            draw_item_tooltip(&mut draw, game_data, &state.settings, &state.fonts.exocet_font, &state.settings.visual.scale, state.relative_mouse_pos);
                             draw_buff_bar(&mut draw, game_data, &state.settings, &state.fonts, &mut d2rprocess.buff_instance, game_data.menus.skill_popover_visible, &app.window().width(), &app.window().height(), &state.images);
                             draw_party_info(&mut draw, game_data, &state.fonts.formal_font, game_data.menus.party_portaits, &state.settings.party_info, &app.window().width(), &app.window().height());
 

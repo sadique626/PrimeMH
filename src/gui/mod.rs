@@ -3,8 +3,6 @@ use notan::text::Font;
 use crate::settings::Locales;
 
 pub mod draw_buff_bar;
-mod draw_item_log;
-mod draw_item_tooltip;
 mod draw_lines;
 mod draw_map;
 mod draw_objects;
@@ -17,7 +15,6 @@ pub mod ui;
 mod util;
 pub mod hotkeys;
 pub mod egui;
-pub mod play_sound;
 
 pub struct Fonts {
     pub exocet_font: Font,
