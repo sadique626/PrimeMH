@@ -54,10 +54,9 @@ pub fn get_seed_data(map_seed: u32, difficulty: u32) -> SeedData {
                 }
             };
             for level in act_ref.levels() {
-                if !level.placed() {
-                    continue;
-                }
-                match convert_level(&level) {
+                // interior levels (dungeons, tombs, cellars...) are not "placed" on the
+                // surface but still have their own coordinates, so keep every level
+                match convert_level(&level, map_seed) {
                     Some(level_data) => levels.push(level_data),
                     None => log::debug!("libd2: skipped level {}", level.id().0),
                 }
@@ -77,7 +76,7 @@ pub fn get_seed_data(map_seed: u32, difficulty: u32) -> SeedData {
     SeedData { seed: map_seed, difficulty, levels }
 }
 
-fn convert_level(level: &LevelRef<'_>) -> Option<LevelData> {
+fn convert_level(level: &LevelRef<'_>, map_seed: u32) -> Option<LevelData> {
     let id = level.id().0;
     if id <= 0 {
         return None;
@@ -91,7 +90,7 @@ fn convert_level(level: &LevelRef<'_>) -> Option<LevelData> {
     }
 
     let map = encode_grid(&grid);
-    let objects = convert_presets(level);
+    let objects = convert_presets(level, map_seed);
 
     Some(LevelData {
         level_type: "map".to_owned(),
@@ -150,10 +149,36 @@ pub fn encode_row(blocked: impl Iterator<Item = bool>) -> Vec<u64> {
     runs
 }
 
-fn convert_presets(level: &LevelRef<'_>) -> Vec<Object> {
+/// The Horadric Staff ("true") tomb in Act II, rolled from the map seed exactly like the game
+/// does (DRLG_AllocDrlgActMisc): returns a level id between 66 and 72.
+pub fn staff_tomb_level(map_seed: u32) -> u32 {
+    const MUL: u64 = 0x6AC6_90C5;
+    let next = |(low, high): (u32, u32)| -> (u32, u32) {
+        let state = (low as u64).wrapping_mul(MUL).wrapping_add(high as u64);
+        (state as u32, (state >> 32) as u32)
+    };
+    let mut s = next((map_seed, 0x29A));
+    loop {
+        let prod = next(s);
+        let staff = prod.0 % 7;
+        s = next(prod);
+        let boss = s.0 % 7;
+        if staff != boss {
+            return staff + 66;
+        }
+    }
+}
+
+fn dist(ax: i32, ay: i32, bx: i32, by: i32) -> i32 {
+    (ax - bx).abs() + (ay - by).abs()
+}
+
+fn convert_presets(level: &LevelRef<'_>, map_seed: u32) -> Vec<Object> {
     let presets = level.presets().unwrap_or_default();
     let adjacents = level.adjacents().unwrap_or_default();
-    let mut objects = Vec::with_capacity(presets.len());
+    let level_id = level.id().0;
+    let mut objects = Vec::with_capacity(presets.len() + adjacents.len());
+    let mut warp_spots: Vec<(i32, i32)> = Vec::new();
 
     for p in presets {
         if p.at.x < 0 || p.at.y < 0 {
@@ -183,31 +208,46 @@ fn convert_presets(level: &LevelRef<'_>) -> Vec<Object> {
             Preset::Monster(mon_id) => {
                 objects.push(Object::new_npc(x, y, mon_id.0 as u32));
             }
-            Preset::Exit(_warp) => {
-                // A warp (stairs, cave mouth, doorway). Its destination is the adjacent level
-                // whose crossing point is closest to the warp.
-                let dest = adjacents
-                    .iter()
-                    .min_by_key(|a| (a.at.x - p.at.x).abs() + (a.at.y - p.at.y).abs())
-                    .map(|a| a.to.0)
-                    .unwrap_or(0);
-                if dest <= 0 {
-                    continue;
-                }
-                objects.push(Object {
-                    id: dest as u32,
-                    object_type: "exit".to_owned(),
-                    x,
-                    y,
-                    name: String::new(),
-                    class: String::new(),
-                    op: 0,
-                    is_good_exit: false,
-                    owned_level_id: 0,
-                });
-            }
+            Preset::Exit(_) => warp_spots.push((p.at.x, p.at.y)),
             Preset::Other { .. } => {}
         }
+    }
+
+    // Zone transitions. libd2 lists every level this one connects to (stairs, cave mouths,
+    // doorways and walk-across borders). Its position is the centre of the room holding the
+    // crossing; if a warp tile sits in that room, use the warp's exact spot instead.
+    let staff_tomb = staff_tomb_level(map_seed) as i32;
+    let mut placed: Vec<(i32, i32, i32)> = Vec::new(); // (dest, x, y)
+    for adj in adjacents {
+        let dest = adj.to.0;
+        if dest <= 0 || dest == level_id {
+            continue;
+        }
+        let (mut x, mut y) = (adj.at.x, adj.at.y);
+        if let Some(&(wx, wy)) = warp_spots.iter().filter(|w| dist(w.0, w.1, x, y) <= 30).min_by_key(|w| dist(w.0, w.1, x, y)) {
+            x = wx;
+            y = wy;
+        }
+        if x < 0 || y < 0 {
+            continue;
+        }
+        // one label per crossing: skip if the same destination is already labelled nearby
+        if placed.iter().any(|&(d, px, py)| d == dest && dist(px, py, x, y) < 60) {
+            continue;
+        }
+        placed.push((dest, x, y));
+        objects.push(Object {
+            id: dest as u32,
+            object_type: "exit".to_owned(),
+            x: x as u32,
+            y: y as u32,
+            name: String::new(),
+            class: String::new(),
+            op: 0,
+            // Canyon of the Magi: mark the tomb that holds the real Tal Rasha's chamber
+            is_good_exit: level_id == 46 && dest == staff_tomb,
+            owned_level_id: level_id as u32,
+        });
     }
     objects
 }

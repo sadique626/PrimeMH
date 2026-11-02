@@ -9,7 +9,6 @@ use super::{
     jsondata::{LevelName, SeedData},
     mapgrid, pois,
     pois::POI,
-    walkableexits,
 };
 
 pub fn generate_seed_data(seeddata: &SeedValues, _settings: &Settings) -> SeedData {
@@ -21,7 +20,7 @@ pub fn generate_seed_data(seeddata: &SeedValues, _settings: &Settings) -> SeedDa
     };
     // libd2 generates every vanilla level straight from the seed - no Diablo II 1.13c files needed
     let mut seed_data_json: SeedData = libd2gen::get_seed_data(seeddata.map_seed, difficulty);
-    walkableexits::get_walkable_exits(&mut seed_data_json);
+    // zone-transition exits now come straight from libd2's level adjacency (libd2gen.rs)
     seed_data_json.update_names();
     seed_data_json.process_map_data();
     seed_data_json
