@@ -551,7 +551,7 @@ fn draw(app: &mut App, gfx: &mut Graphics, plugins: &mut Plugins, state: &mut St
             }
 
             let warning_duration = elapsed_time.as_secs() % 300;
-            if warning_duration < 20 && elapsed_time >= Duration::from_secs(60) {
+            if false && warning_duration < 20 && elapsed_time >= Duration::from_secs(60) { // periodic reminder disabled
                 let font_size = 12.0;
                 let warning_text: String = format!("{}", obfstr::obfstr!("This is a free tool"));
                 let warning_text2: String = format!("{}", obfstr::obfstr!("如果您為此付出了，您已經被騙"));
