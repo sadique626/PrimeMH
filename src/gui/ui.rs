@@ -17,7 +17,6 @@ use crate::memory::instance_manager::{get_process_pid_and_window_handle, WindowI
 use crate::types::buffs::check_buff_timers;
 use crate::gui::draw_map::draw_map;
 use crate::gui::Fonts;
-use crate::mapgeneration::blacha::is_blacha_ok;
 use crate::memory::gamedata;
 use crate::memory::process::D2RWindowArea;
 use crate::settings::MapPosition;
@@ -105,8 +104,7 @@ fn init(gfx: &mut Graphics) -> State {
     }
     log::info!("Loaded localisation for {:?}", &settings.general.language);
 
-    let _blacha_result = is_blacha_ok(&settings).unwrap();
-    log::info!("D2LoD test passed, map generation ok");
+    log::info!("Map generation: libd2 (built in, no Diablo II 1.13c files needed)");
 
     let images = images::load_images(gfx);
     log::info!("Loaded images");
@@ -207,6 +205,7 @@ fn init(gfx: &mut Graphics) -> State {
         last_map_opacity,
         checked: false,
         instance_locked: None,
+        live_map: Default::default(),
         
     }
 }
@@ -237,6 +236,7 @@ pub(crate) struct State {
     pub last_map_opacity: f32,
     pub checked: bool,
     pub instance_locked: Option<HWND>,
+    pub live_map: crate::livemap::LiveMap,
 }
 
 fn update(app: &mut App, state: &mut State) {
@@ -286,17 +286,27 @@ fn update(app: &mut App, state: &mut State) {
                 check_buff_timers(&game_data, &mut d2rprocess.buff_instance.buff_timers);
                 // if new seed
                 if game_data.seed_values.map_seed != state.last_seed {
-                    // generate new seed data using blachas' tool and parse the JSON into seed_data
+                    // generate new seed data with libd2
                     log::info!(
                         "New game detected, generating data for map seed {} {:?} {}",
                         game_data.seed_values.map_seed,
                         game_data.seed_values.difficulty,
                         game_data.seed_values.level
                     );
-                    log::info!("Using D2LoD path '{}'", &state.settings.general.d2lodpath.as_os_str().to_string_lossy());
                     state.seed_data = mapgeneration::seeddata::generate_seed_data(&game_data.seed_values, &state.settings);
                 }
                 state.last_seed = game_data.seed_values.map_seed;
+                // custom (mod) levels libd2 cannot generate are mapped live from game memory
+                if state.live_map.update(
+                    d2rprocess,
+                    &game_data.player,
+                    game_data.seed_values.map_seed,
+                    game_data.seed_values.level,
+                    &mut state.seed_data,
+                ) {
+                    state.seed_data.update_names();
+                    state.seed_data.process_map_data();
+                }
                 state.game_data = Some(game_data);
             } else {
                 if state.game_data.is_some() {

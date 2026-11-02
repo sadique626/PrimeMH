@@ -12,6 +12,7 @@ use logger::configure_logging;
 use winapi::um::wincon::{AttachConsole, ATTACH_PARENT_PROCESS}; 
 
 mod gui;
+mod livemap;
 mod localisation;
 mod mapgeneration;
 mod memory;

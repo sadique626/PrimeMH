@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use crate::{settings::Settings, types::seedvalues::Difficulty};
 
 use num_traits::FromPrimitive;
@@ -7,34 +5,22 @@ use rayon::prelude::{IntoParallelRefMutIterator, ParallelIterator};
 
 use super::{
     super::types::seedvalues::SeedValues,
-    blacha,
+    libd2gen,
     jsondata::{LevelName, SeedData},
     mapgrid, pois,
     pois::POI,
     walkableexits,
 };
 
-pub struct SeedRequest {
-    pub map_seed: u32,
-    pub difficulty: u32,
-    pub d2lodpath: PathBuf,
-    pub blacha_exe: PathBuf,
-}
-
-pub fn generate_seed_data(seeddata: &SeedValues, settings: &Settings) -> SeedData {
+pub fn generate_seed_data(seeddata: &SeedValues, _settings: &Settings) -> SeedData {
     let difficulty = match seeddata.difficulty {
         Difficulty::Normal => 0,
         Difficulty::Nightmare => 1,
         Difficulty::Hell => 2,
         Difficulty::Invalid => 0,
     };
-    let seed_request = SeedRequest {
-        map_seed: seeddata.map_seed,
-        difficulty,
-        d2lodpath: settings.general.d2lodpath.clone(),
-        blacha_exe: settings.general.blacha_exe.clone(),
-    };
-    let mut seed_data_json: SeedData = blacha::get_seed_data(seed_request);
+    // libd2 generates every vanilla level straight from the seed - no Diablo II 1.13c files needed
+    let mut seed_data_json: SeedData = libd2gen::get_seed_data(seeddata.map_seed, difficulty);
     walkableexits::get_walkable_exits(&mut seed_data_json);
     seed_data_json.update_names();
     seed_data_json.process_map_data();

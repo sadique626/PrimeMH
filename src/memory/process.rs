@@ -343,6 +343,24 @@ impl D2RInstance {
         ret
     }
 
+    /// Read `len` raw bytes. Returns None if the read fails (unmapped / freed memory).
+    /// Used by the live map, which reads variable sized collision buffers.
+    pub fn read_bytes(&self, address: u64, len: usize) -> Option<Vec<u8>> {
+        use winapi::um::memoryapi::ReadProcessMemory;
+        if address < 0x10000 || len == 0 || len > 16 * 1024 * 1024 {
+            return None;
+        }
+        let mut buf: Vec<u8> = vec![0u8; len];
+        let mut read: usize = 0;
+        let ok = unsafe {
+            ReadProcessMemory(self.handle, address as *mut _, buf.as_mut_ptr() as LPVOID, len, &mut read as *mut usize)
+        };
+        if ok == FALSE || read != len {
+            return None;
+        }
+        Some(buf)
+    }
+
     pub fn _write_mem<T: Copy>(&self, address: u64, value: T) -> bool {
         if address == 0 || address == 1 {
             return false;

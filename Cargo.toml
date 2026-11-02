@@ -55,3 +55,5 @@ msgbox = "0.7.0"
 proc_mem = "0.1.4"
 obfstr = "0.4.3"
 rodio = { version = "0.20.1" }
+# clean-room D2 map generator (replaces d2-mapgen.exe + Diablo II 1.13c)
+libd2 = { path = "../libd2/packages/rust/libd2" }
