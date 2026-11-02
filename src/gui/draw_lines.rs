@@ -27,7 +27,14 @@ pub fn draw_lines(draw: &mut Draw, this_level: &LevelData, game_data: &GameData,
                 POIType::Exit => {
                     draw_exit_line(target_pos, draw, poi.id, current_level_id, settings, width, height);
                 }
-                // POIType::GoodExit => { draw_good_exit(poi, player_pos, this_level, draw, settings.visual.scale); },
+                POIType::GoodExit => {
+                    // line to the real Tal Rasha's tomb in Canyon of the Magi
+                    if settings.lines.exit_enabled {
+                        draw.line((*width / 2.0, *height / 2.0), target_pos)
+                            .width(settings.lines.line_width)
+                            .color(Color::from_rgb(0.0, 1.0, 0.0));
+                    }
+                }
                 POIType::QuestItem => {
                     draw_quest_line(target_pos, draw, settings, width, height);
                 }

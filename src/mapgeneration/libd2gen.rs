@@ -13,7 +13,7 @@
 use std::cell::RefCell;
 use std::time::Instant;
 
-use libd2::drlg::{Collision, CollisionGrid, Difficulty, Generator, LevelRef, Preset};
+use libd2::drlg::{Collision, Difficulty, Generator, LevelRef, Preset};
 
 use super::jsondata::{LevelData, Object, Offset, Size, SeedData};
 
@@ -89,18 +89,51 @@ fn convert_level(level: &LevelRef<'_>, map_seed: u32) -> Option<LevelData> {
         return None;
     }
 
-    let map = encode_grid(&grid);
-    let objects = convert_presets(level, map_seed);
+    // Dungeon levels reserve a huge area (e.g. 1000x1000 subtiles) but only use part of it.
+    // Crop to the floor that actually exists (plus a small border) so images stay small.
+    let cells = grid.cells();
+    let (mut x0, mut y0, mut x1, mut y1) = (width, height, 0usize, 0usize);
+    for y in 0..height {
+        for x in 0..width {
+            if !is_blocked(cells[y * width + x]) {
+                x0 = x0.min(x);
+                y0 = y0.min(y);
+                x1 = x1.max(x);
+                y1 = y1.max(y);
+            }
+        }
+    }
+    if x1 < x0 || y1 < y0 {
+        return None; // no floor at all
+    }
+    let x0 = x0.saturating_sub(2);
+    let y0 = y0.saturating_sub(2);
+    let x1 = (x1 + 2).min(width - 1);
+    let y1 = (y1 + 2).min(height - 1);
+    let (cw, ch) = (x1 - x0 + 1, y1 - y0 + 1);
+
+    let map: Vec<Vec<u64>> = (y0..=y1)
+        .map(|y| encode_row((x0..=x1).map(|x| is_blocked(cells[y * width + x]))))
+        .collect();
+    let objects: Vec<Object> = convert_presets(level, map_seed)
+        .into_iter()
+        .filter(|o| (o.x as usize) >= x0 && (o.x as usize) <= x1 && (o.y as usize) >= y0 && (o.y as usize) <= y1)
+        .map(|mut o| {
+            o.x -= x0 as u32;
+            o.y -= y0 as u32;
+            o
+        })
+        .collect();
 
     Some(LevelData {
         level_type: "map".to_owned(),
         id: id as u32,
         name: Default::default(),
         offset: Offset {
-            x: (origin.x * libd2::drlg::SUBTILES) as u32,
-            y: (origin.y * libd2::drlg::SUBTILES) as u32,
+            x: (origin.x * libd2::drlg::SUBTILES) as u32 + x0 as u32,
+            y: (origin.y * libd2::drlg::SUBTILES) as u32 + y0 as u32,
         },
-        size: Size { width: width as u32, height: height as u32 },
+        size: Size { width: cw as u32, height: ch as u32 },
         objects,
         map,
         level_image: Default::default(),
@@ -110,12 +143,6 @@ fn convert_level(level: &LevelRef<'_>, map_seed: u32) -> Option<LevelData> {
 /// Walls (and void, which has every bit set) are blocked; everything else is floor.
 fn is_blocked(c: Collision) -> bool {
     c.intersects(Collision::WALL)
-}
-
-fn encode_grid(grid: &CollisionGrid) -> Vec<Vec<u64>> {
-    grid.rows()
-        .map(|row| encode_row(row.iter().map(|c| is_blocked(*c))))
-        .collect()
 }
 
 /// Run-length encode one row in d2-mapgen's format. `blocked` yields true for blocked cells.
@@ -217,25 +244,45 @@ fn convert_presets(level: &LevelRef<'_>, map_seed: u32) -> Vec<Object> {
     // doorways and walk-across borders). Its position is the centre of the room holding the
     // crossing; if a warp tile sits in that room, use the warp's exact spot instead.
     let staff_tomb = staff_tomb_level(map_seed) as i32;
-    let mut placed: Vec<(i32, i32, i32)> = Vec::new(); // (dest, x, y)
-    for adj in adjacents {
+
+    // Group the crossing points per destination. A walk-across border is reported once per
+    // border room (every 40 subtiles), so chain points that sit close together into one
+    // crossing and put a single label in its middle. Separate entrances stay separate.
+    let mut clusters: Vec<(i32, Vec<(i32, i32)>)> = Vec::new(); // (dest, points)
+    for adj in &adjacents {
         let dest = adj.to.0;
-        if dest <= 0 || dest == level_id {
+        if dest <= 0 || dest == level_id || adj.at.x < 0 || adj.at.y < 0 {
             continue;
         }
-        let (mut x, mut y) = (adj.at.x, adj.at.y);
+        let pt = (adj.at.x, adj.at.y);
+        let touching: Vec<usize> = clusters
+            .iter()
+            .enumerate()
+            .filter(|(_, (d, pts))| *d == dest && pts.iter().any(|q| dist(q.0, q.1, pt.0, pt.1) <= 45))
+            .map(|(i, _)| i)
+            .collect();
+        match touching.first() {
+            None => clusters.push((dest, vec![pt])),
+            Some(&first) => {
+                clusters[first].1.push(pt);
+                // merge any other clusters this point bridges
+                for &i in touching.iter().skip(1).rev() {
+                    let moved = clusters.remove(i).1;
+                    clusters[first].1.extend(moved);
+                }
+            }
+        }
+    }
+
+    for (dest, pts) in clusters {
+        let n = pts.len() as i32;
+        let mut x = pts.iter().map(|p| p.0).sum::<i32>() / n;
+        let mut y = pts.iter().map(|p| p.1).sum::<i32>() / n;
+        // if a warp tile sits close by, use the warp's exact spot instead of the room centre
         if let Some(&(wx, wy)) = warp_spots.iter().filter(|w| dist(w.0, w.1, x, y) <= 30).min_by_key(|w| dist(w.0, w.1, x, y)) {
             x = wx;
             y = wy;
         }
-        if x < 0 || y < 0 {
-            continue;
-        }
-        // one label per crossing: skip if the same destination is already labelled nearby
-        if placed.iter().any(|&(d, px, py)| d == dest && dist(px, py, x, y) < 60) {
-            continue;
-        }
-        placed.push((dest, x, y));
         objects.push(Object {
             id: dest as u32,
             object_type: "exit".to_owned(),

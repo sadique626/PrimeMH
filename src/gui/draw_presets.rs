@@ -123,7 +123,7 @@ pub fn draw_presets(
                 draw_exit(poi, player_pos, this_level, draw, settings.visual.scale, current_level_id, width, height, all_fonts, settings);
             }
             POIType::GoodExit => {
-                draw_good_exit(poi, player_pos, this_level, draw, settings.visual.scale, width, height);
+                draw_good_exit(poi, player_pos, this_level, draw, settings.visual.scale, width, height, all_fonts, settings);
             }
             POIType::QuestItem => {
                 draw_quest_item(poi, player_pos, draw, settings.visual.scale, width, height);
@@ -185,12 +185,33 @@ fn draw_exit(
     }
 }
 
-fn draw_good_exit(poi: &POI, player_pos: (f32, f32), _this_level: &LevelData, draw: &mut Draw, scale: f32, width: &f32, height: &f32) {
+#[allow(clippy::too_many_arguments)]
+fn draw_good_exit(poi: &POI, player_pos: (f32, f32), _this_level: &LevelData, draw: &mut Draw, scale: f32, width: &f32, height: &f32, all_fonts: &Fonts, settings: &Settings) {
     let size = (8.0 * scale, 4.0 * scale);
     let unit_pos = (poi.world_x as f32, poi.world_y as f32);
     let poi_pos = transform_position(unit_pos, size, player_pos, scale, width, height);
     let color = Color::from_rgb(0.0, 255.0, 0.0);
     draw_diamond(draw, poi_pos, size, color);
+
+    // label the real Tal Rasha's tomb so it stands out from the six fake ones
+    let label = {
+        let localisation = LOCALISATION.lock().unwrap();
+        format!("{} (TRUE)", localisation.get_level(&poi.id))
+    };
+    let font = all_fonts.get_safe_font(&settings.general.language);
+    let text_pos = (poi_pos.0 + (size.0 / 2.0), (poi_pos.1 + (size.1 / 2.0)) - (6.0 * scale));
+    draw.text(&font, &label)
+        .position(text_pos.0 + 2.0, text_pos.1 + 2.0)
+        .size(settings.visual.exit_label_text_size * scale)
+        .color(Color::BLACK)
+        .h_align_center()
+        .v_align_middle();
+    draw.text(&font, &label)
+        .position(text_pos.0, text_pos.1)
+        .size(settings.visual.exit_label_text_size * scale)
+        .color(Color::from_rgb(0.0, 1.0, 0.0))
+        .h_align_center()
+        .v_align_middle();
 }
 
 fn draw_quest_item(poi: &POI, player_pos: (f32, f32), draw: &mut Draw, scale: f32, width: &f32, height: &f32) {
