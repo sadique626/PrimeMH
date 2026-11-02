@@ -6,8 +6,6 @@ A real-time map overlay tool for **Diablo II: Resurrected**, written in Rust. Pr
 
 First released 2024-02-12, it received a ban wave on 2026-02-26.
 
-Discord server https://discord.gg/CGmHS3xFWc
-
 
 ## Features
 
