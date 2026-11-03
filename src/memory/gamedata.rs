@@ -65,6 +65,7 @@ impl GameData {
         let last_hovered: LastHovered = LastHovered::get_hovered(d2rprocess);
 
         let keybindings: KeyBindings = KeyBindings::new(d2rprocess);
+        let player_experience = read_experience(d2rprocess, &player.raw);
         let warp_tile_rooms: Vec<(u32, u32, u64)> = crate::types::get_raw_units(d2rprocess, unit_ptrs.tile_ptrs)
             .into_iter()
             .filter(|u| u.p_path != 0)
@@ -91,7 +92,7 @@ impl GameData {
             keybindings,
             warp_tiles,
             warp_tile_rooms,
-            player_experience: read_experience(d2rprocess, &player.raw),
+            player_experience,
         })
     }
 
