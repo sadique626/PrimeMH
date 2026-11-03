@@ -55,6 +55,9 @@ impl Default for RunStats {
 }
 
 fn experience(game_data: &GameData) -> Option<u32> {
+    if game_data.player_experience.is_some() {
+        return game_data.player_experience;
+    }
     game_data
         .player
         .stats

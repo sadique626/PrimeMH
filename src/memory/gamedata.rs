@@ -21,6 +21,8 @@ pub struct GameData {
     pub warp_tiles: Vec<(u32, u32)>,
     /// the same warp tiles with the room (Room1) each sits in: (x, y, room)
     pub warp_tile_rooms: Vec<(u32, u32, u64)>,
+    /// the player's total experience (read as a full 32-bit value)
+    pub player_experience: Option<u32>,
 }
 
 impl GameData {
@@ -89,6 +91,7 @@ impl GameData {
             keybindings,
             warp_tiles,
             warp_tile_rooms,
+            player_experience: read_experience(d2rprocess, &player.raw),
         })
     }
 
@@ -111,4 +114,26 @@ pub fn get_last_game_name(d2rprocess: &D2RInstance) -> String {
         game_name = "".to_string();
     }
     game_name
+}
+
+/// Experience is stat 13. Each stat entry is { u16 layer, u16 stat, u32 value }; read the value
+/// as a whole u32, since experience is far beyond what a 16-bit stat value can hold.
+fn read_experience(d2rprocess: &D2RInstance, unit: &super::structs::Unit) -> Option<u32> {
+    if unit.p_stats_list_ex == 0 {
+        return None;
+    }
+    let list: super::structs::StatsList = d2rprocess.read_mem(unit.p_stats_list_ex);
+    for (ptr, count) in [(list.stat_ptr, list.stat_count), (list.stat_ex_ptr, list.stat_ex_count)] {
+        if ptr == 0 || count == 0 || count > 1024 {
+            continue;
+        }
+        let Some(bytes) = d2rprocess.read_bytes(ptr, count as usize * 8) else { continue };
+        for e in bytes.chunks_exact(8) {
+            let stat = u16::from_le_bytes([e[2], e[3]]);
+            if stat == 13 {
+                return Some(u32::from_le_bytes([e[4], e[5], e[6], e[7]]));
+            }
+        }
+    }
+    None
 }
