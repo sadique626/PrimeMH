@@ -65,6 +65,12 @@ pub struct LiveMap {
     last_build: Instant,
     last_fail_log: Option<Instant>,
     last_unit_log: Option<Instant>,
+    /// libd2 levels checked against what the game really has loaded: (cells compared, cells different)
+    checks: HashMap<u32, (u32, u32)>,
+    /// libd2 levels that matched the game
+    verified: HashSet<u32>,
+    /// libd2 levels that did NOT match the game (e.g. changed by a mod): mapped live instead
+    mismatched: HashSet<u32>,
 }
 
 impl Default for LiveMap {
@@ -78,6 +84,9 @@ impl Default for LiveMap {
             last_build: Instant::now() - BUILD_INTERVAL,
             last_fail_log: None,
             last_unit_log: None,
+            checks: HashMap::new(),
+            verified: HashSet::new(),
+            mismatched: HashSet::new(),
         }
     }
 }
@@ -115,15 +124,28 @@ impl LiveMap {
         if seed != self.seed {
             self.rooms.clear();
             self.dirty.clear();
+            self.checks.clear();
+            self.verified.clear();
+            self.mismatched.clear();
             self.seed = seed;
         }
         let live_levels_present = seed_data.levels.iter().any(|l| l.level_type == "live");
-        if !needs_live_map(current_level, seed_data) && !live_levels_present {
+        let unchecked = current_level <= LAST_VANILLA_LEVEL
+            && !self.verified.contains(&current_level)
+            && !self.mismatched.contains(&current_level);
+        if !needs_live_map(current_level, seed_data) && !live_levels_present && !unchecked {
             return false;
         }
         if self.last_scan.elapsed() >= SCAN_INTERVAL {
             self.last_scan = Instant::now();
             self.scan(d2r, player, seed_data);
+            // a generated level that turned out not to match the game is replaced by the live map
+            for id in self.mismatched.iter() {
+                if seed_data.levels.iter().any(|l| l.id == *id && l.level_type != "live") {
+                    seed_data.levels.retain(|l| l.id != *id);
+                    self.dirty.insert(*id);
+                }
+            }
         }
         if self.dirty.is_empty() || self.last_build.elapsed() < BUILD_INTERVAL {
             return false;
@@ -165,6 +187,46 @@ impl LiveMap {
         path.p_room
     }
 
+    /// Compare a room the game has loaded with the libd2 map of the same level.
+    fn check_room(&mut self, live: &LiveRoom, seed_data: &SeedData) {
+        if self.verified.contains(&live.level) || self.mismatched.contains(&live.level) {
+            return;
+        }
+        let Some(level) = seed_data.levels.iter().find(|l| l.id == live.level && l.level_type != "live") else { return };
+        let Some(grid) = level.level_image.map_grid.as_ref() else { return };
+        let (mut total, mut bad) = (0u32, 0u32);
+        for yy in 0..live.h {
+            for xx in 0..live.w {
+                let lx = (live.x + xx) as i64 - level.offset.x as i64;
+                let ly = (live.y + yy) as i64 - level.offset.y as i64;
+                let game_blocked = live.blocked[(yy * live.w + xx) as usize];
+                let ours_blocked = if lx < 0 || ly < 0 || lx >= grid.width as i64 || ly >= grid.height as i64 {
+                    true
+                } else {
+                    !grid.tiles[ly as usize][lx as usize]
+                };
+                total += 1;
+                if game_blocked != ours_blocked {
+                    bad += 1;
+                }
+            }
+        }
+        let entry = self.checks.entry(live.level).or_insert((0, 0));
+        entry.0 += total;
+        entry.1 += bad;
+        let (t, b) = *entry;
+        if t >= 6000 {
+            let pct = b as f32 * 100.0 / t as f32;
+            if pct > 20.0 {
+                log::warn!("Level {} from libd2 does not match the game ({:.0}% of cells differ) - using the live map instead", live.level, pct);
+                self.mismatched.insert(live.level);
+            } else {
+                log::info!("Level {} from libd2 matches the game ({:.1}% of cells differ)", live.level, pct);
+                self.verified.insert(live.level);
+            }
+        }
+    }
+
     fn scan(&mut self, d2r: &D2RInstance, player: &PlayerUnit, seed_data: &SeedData) {
         let start_room = Self::player_room(d2r, player);
         if !looks_like_ptr(start_room) {
@@ -197,8 +259,15 @@ impl LiveMap {
             let Some(head) = d2r.read_bytes(room, 0x100) else { continue };
             if let Some(live) = read_room(d2r, room, &head, &layout) {
                 ok_rooms += 1;
-                // only keep levels libd2 does not already provide
-                if live.level > 0 && (live.level > LAST_VANILLA_LEVEL || !seed_data.levels.iter().any(|l| l.id == live.level && l.level_type != "live")) {
+                if live.level > 0 && live.level <= LAST_VANILLA_LEVEL {
+                    self.check_room(&live, seed_data);
+                }
+                // only keep levels libd2 does not already provide (or got wrong)
+                if live.level > 0
+                    && (live.level > LAST_VANILLA_LEVEL
+                        || self.mismatched.contains(&live.level)
+                        || !seed_data.levels.iter().any(|l| l.id == live.level && l.level_type != "live"))
+                {
                     let key = (live.level, live.x, live.y);
                     if self.rooms.get(&key) != Some(&live) {
                         self.dirty.insert(live.level);
