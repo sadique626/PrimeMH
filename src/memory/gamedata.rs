@@ -124,17 +124,31 @@ fn read_experience(d2rprocess: &D2RInstance, unit: &super::structs::Unit) -> Opt
         return None;
     }
     let list: super::structs::StatsList = d2rprocess.read_mem(unit.p_stats_list_ex);
-    for (ptr, count) in [(list.stat_ptr, list.stat_count), (list.stat_ex_ptr, list.stat_ex_count)] {
+    // every stat array we know of: the base list, the extended list, and the chain of
+    // stat lists hanging off the unit (where PrimeMH's own stat reader finds the player stats)
+    let mut arrays: Vec<(u64, u32)> = vec![(list.stat_ptr, list.stat_count), (list.stat_ex_ptr, list.stat_ex_count)];
+    let mut p = list.stat_unit_ptr;
+    for _ in 0..16 {
+        if p == 0 {
+            break;
+        }
+        arrays.push((d2rprocess.read_mem::<u64>(p + 0x30), d2rprocess.read_mem::<u32>(p + 0x38)));
+        p = d2rprocess.read_mem::<u64>(p + 0x48);
+    }
+    let mut best: Option<u32> = None;
+    for (ptr, count) in arrays {
         if ptr == 0 || count == 0 || count > 1024 {
             continue;
         }
         let Some(bytes) = d2rprocess.read_bytes(ptr, count as usize * 8) else { continue };
         for e in bytes.chunks_exact(8) {
+            let layer = u16::from_le_bytes([e[0], e[1]]);
             let stat = u16::from_le_bytes([e[2], e[3]]);
-            if stat == 13 {
-                return Some(u32::from_le_bytes([e[4], e[5], e[6], e[7]]));
+            if stat == 13 && layer == 0 {
+                let v = u32::from_le_bytes([e[4], e[5], e[6], e[7]]);
+                best = Some(best.map_or(v, |b| b.max(v)));
             }
         }
     }
-    None
+    best
 }

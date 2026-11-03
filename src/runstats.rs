@@ -37,6 +37,7 @@ struct Run {
     start_xp: Option<u32>,
     xp_now: Option<u32>,
     dead: HashSet<u32>,
+    logged: bool,
 }
 
 pub struct RunStats {
@@ -124,10 +125,16 @@ impl RunStats {
                 start_xp: None,
                 xp_now: None,
                 dead: HashSet::new(),
+                logged: false,
             });
         }
         let run = self.run.as_mut().unwrap();
-        if let Some(xp) = experience(gd) {
+        let xp_read = experience(gd);
+        if !run.logged && run.started.elapsed().as_secs() >= 5 {
+            run.logged = true;
+            log::info!("Run stats: experience read as {:?} (start {:?})", xp_read, run.start_xp);
+        }
+        if let Some(xp) = xp_read {
             run.start_xp.get_or_insert(xp);
             run.xp_now = Some(xp);
         }
