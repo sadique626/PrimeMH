@@ -21,7 +21,17 @@ struct Drop {
     name: String,
     base: String,
     set: bool,
+    watched: bool,
     at: Instant,
+}
+
+/// One row of the filter list in the settings panel.
+pub struct CatalogItem {
+    pub name: String,
+    pub base: String,
+    pub set: bool,
+    /// lower-case "name base" for searching
+    pub search: String,
 }
 
 pub struct DropLog {
@@ -32,6 +42,35 @@ pub struct DropLog {
     entries: Vec<Drop>,
     seen: HashSet<u32>,
     seed: u32,
+    /// every unique and set item, sorted by name, for the filter list
+    pub catalog: Vec<CatalogItem>,
+    /// text typed into the filter's search box
+    pub search: String,
+}
+
+pub fn test_sound(file: &str, volume: f32) {
+    play_sound(file.to_string(), volume);
+}
+
+fn play_sound(file: String, volume: f32) {
+    std::thread::spawn(move || {
+        let Ok((_stream, handle)) = rodio::OutputStream::try_default() else {
+            log::warn!("Drop log: no audio output device");
+            return;
+        };
+        let Ok(sink) = rodio::Sink::try_new(&handle) else { return };
+        match std::fs::File::open(&file) {
+            Ok(f) => match rodio::Decoder::new(std::io::BufReader::new(f)) {
+                Ok(src) => {
+                    sink.set_volume(volume.clamp(0.0, 2.0));
+                    sink.append(src);
+                    sink.sleep_until_end();
+                }
+                Err(e) => log::warn!("Drop log: could not decode sound {}: {}", file, e),
+            },
+            Err(e) => log::warn!("Drop log: sound file {} not found: {}", file, e),
+        }
+    });
 }
 
 fn table(file: &str, base_col: &str) -> HashMap<u32, (String, String)> {
@@ -62,20 +101,41 @@ impl Default for DropLog {
             .and_then(|t| serde_json::from_str::<HashMap<String, serde_json::Value>>(&t).ok())
             .map(|m| m.into_iter().filter_map(|(k, v)| v.as_str().map(|s| (k, s.to_string()))).collect())
             .unwrap_or_default();
-        let log = DropLog {
+        let mut log = DropLog {
             uniques: table("uniqueitems.txt", "code"),
             sets: table("setitems.txt", "item"),
             strings,
             entries: vec![],
             seen: HashSet::new(),
             seed: 0,
+            catalog: vec![],
+            search: String::new(),
         };
+        log.build_catalog();
         log::info!("Drop log: {} uniques, {} set items, {} strings loaded", log.uniques.len(), log.sets.len(), log.strings.len());
         log
     }
 }
 
 impl DropLog {
+    fn build_catalog(&mut self) {
+        let mut seen_names = HashSet::new();
+        let mut cat = vec![];
+        for (set, map) in [(false, &self.uniques), (true, &self.sets)] {
+            for (key, code) in map.values() {
+                let name = self.text(key);
+                if name.trim().is_empty() || !seen_names.insert(name.clone()) {
+                    continue;
+                }
+                let base = if code.is_empty() { String::new() } else { self.text(code) };
+                let search = format!("{} {}", name, base).to_lowercase();
+                cat.push(CatalogItem { name, base, set, search });
+            }
+        }
+        cat.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        self.catalog = cat;
+    }
+
     fn text(&self, key: &str) -> String {
         let s = self.strings.get(key).cloned().unwrap_or_else(|| key.to_string());
         // strip a gender tag like "[ms]" and D2 colour codes
@@ -93,13 +153,13 @@ impl DropLog {
             self.seen.clear();
         }
         for item in gd.ground_items.iter() {
-            self.add(item);
+            self.add(item, settings);
         }
         let keep = Duration::from_secs(settings.drop_log.duration_secs.max(1) as u64);
         self.entries.retain(|e| e.at.elapsed() < keep);
     }
 
-    fn add(&mut self, item: &GroundItem) {
+    fn add(&mut self, item: &GroundItem, settings: &Settings) {
         // 5 = set, 7 = unique
         let set = match item.quality {
             5 => true,
@@ -114,8 +174,16 @@ impl DropLog {
             Some((key, code)) => (self.text(key), if code.is_empty() { String::new() } else { self.text(code) }),
             None => (format!("{} #{}", if set { "Set item" } else { "Unique" }, item.file_index), String::new()),
         };
-        log::info!("Drop: {} ({}) at {},{}", name, base, item.x, item.y);
-        self.entries.insert(0, Drop { unit_id: item.unit_id, name, base, set, at: Instant::now() });
+        let dl = &settings.drop_log;
+        let watched = dl.watch.iter().any(|w| *w == name);
+        log::info!("Drop: {} ({}) at {},{}{}", name, base, item.x, item.y, if watched { " [filter]" } else { "" });
+        if watched && dl.sound {
+            play_sound(dl.sound_file.clone(), dl.volume);
+        }
+        if dl.only_watched && !watched {
+            return;
+        }
+        self.entries.insert(0, Drop { unit_id: item.unit_id, name, base, set, watched, at: Instant::now() });
         self.entries.truncate(MAX_ENTRIES);
     }
 
@@ -132,7 +200,10 @@ impl DropLog {
             // dim the ones that have been picked up (no longer on the ground)
             let a = if on_ground.contains(&e.unit_id) { 1.0 } else { 0.45 };
             let colour = if e.set { Color::from_rgba(0.30, 0.76, 0.22, a) } else { Color::from_rgba(0.78, 0.72, 0.56, a) };
-            let line = if e.base.is_empty() { e.name.clone() } else { format!("{}  ({})", e.name, e.base) };
+            let mut line = if e.base.is_empty() { e.name.clone() } else { format!("{}  ({})", e.name, e.base) };
+            if e.watched {
+                line = format!("> {} <", line);
+            }
             draw.text(font, &line).position(x + 1.5, y + 1.5).size(size).color(Color::from_rgba(0.0, 0.0, 0.0, a)).h_align_right().v_align_top();
             draw.text(font, &line).position(x, y).size(size).color(colour).h_align_right().v_align_top();
             y += size * 1.35;

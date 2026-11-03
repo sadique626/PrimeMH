@@ -39,6 +39,7 @@ serde_yaml = "0.9"
 strum = { version = "0.24", features = ["derive"] }
 convert_case = "0.6.0"
 pathfinding = "3.0.13"
+rodio = { version = "0.20.1" }
 syn = { version = "1.0.102", features = ["full", "extra-traits"] }
 log = "0.4.0"
 env_logger = "0.10.0"

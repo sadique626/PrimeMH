@@ -104,11 +104,28 @@ pub struct DropLogSettings {
     /// top of the list, as a fraction of the window height (right side)
     pub pos_y: f32,
     pub text_size: f32,
+    /// item names ticked in the drop filter
+    #[serde(default)]
+    pub watch: Vec<String>,
+    /// only list ticked items (otherwise every unique/set is listed, ticked ones marked)
+    #[serde(default)]
+    pub only_watched: bool,
+    /// play a sound when a ticked item drops
+    #[serde(default = "default_true")]
+    pub sound: bool,
+    #[serde(default = "default_sound_file")]
+    pub sound_file: String,
+    #[serde(default = "default_volume")]
+    pub volume: f32,
 }
+
+fn default_true() -> bool { true }
+fn default_sound_file() -> String { "default.mp3".to_string() }
+fn default_volume() -> f32 { 0.8 }
 
 impl Default for DropLogSettings {
     fn default() -> Self {
-        DropLogSettings { enabled: true, duration_secs: 120, pos_y: 0.32, text_size: 14.0 }
+        DropLogSettings { enabled: true, duration_secs: 120, pos_y: 0.32, text_size: 14.0, watch: vec![], only_watched: false, sound: true, sound_file: default_sound_file(), volume: default_volume() }
     }
 }
 

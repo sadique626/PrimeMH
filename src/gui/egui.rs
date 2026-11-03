@@ -375,6 +375,66 @@ pub fn create_egui_panel(app: &mut App, ctx: &Context, state: &mut State, hwnd: 
                 });
         });
         ui.separator();
+        egui::CollapsingHeader::new("Drop filter and sound").default_open(false).show(ui, |ui| {
+            let dl = &mut state.settings.drop_log;
+            ui.checkbox(&mut dl.only_watched, "Only list ticked items in the drop log");
+            ui.checkbox(&mut dl.sound, "Play a sound when a ticked item drops");
+            ui.horizontal(|ui| {
+                ui.label("Volume");
+                ui.add(egui::Slider::new(&mut dl.volume, 0.0..=1.5));
+                if ui.button("Test sound").clicked() {
+                    crate::droplog::test_sound(&dl.sound_file, dl.volume);
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Sound file");
+                ui.add(egui::TextEdit::singleline(&mut dl.sound_file).desired_width(140.0));
+            });
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.label("Search");
+                ui.add(egui::TextEdit::singleline(&mut state.drop_log.search).hint_text("item name or base").desired_width(160.0));
+                if ui.button("x").clicked() {
+                    state.drop_log.search.clear();
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label(format!("{} ticked", dl.watch.len()));
+                if !dl.watch.is_empty() && ui.button("Untick all").clicked() {
+                    dl.watch.clear();
+                }
+            });
+            if state.drop_log.catalog.is_empty() {
+                ui.label("Item list not found - run the build script so it downloads reimagined-data.");
+            }
+            let query = state.drop_log.search.trim().to_lowercase();
+            egui::ScrollArea::vertical().max_height(260.0).auto_shrink([false, true]).show(ui, |ui| {
+                // ticked items first, then everything matching the search
+                for pass in 0..2 {
+                    for item in state.drop_log.catalog.iter() {
+                        let ticked = dl.watch.iter().any(|w| *w == item.name);
+                        if (pass == 0) != ticked {
+                            continue;
+                        }
+                        if !query.is_empty() && !item.search.contains(&query) {
+                            continue;
+                        }
+                        let colour = if item.set { egui::Color32::from_rgb(77, 194, 56) } else { egui::Color32::from_rgb(199, 179, 119) };
+                        let label = if item.base.is_empty() { item.name.clone() } else { format!("{}  ({})", item.name, item.base) };
+                        let mut on = ticked;
+                        if ui.checkbox(&mut on, egui::RichText::new(label).color(colour)).changed() {
+                            if on {
+                                dl.watch.push(item.name.clone());
+                            } else {
+                                dl.watch.retain(|w| *w != item.name);
+                            }
+                        }
+                    }
+                }
+            });
+            ui.label("Press Save at the bottom to keep your ticks.");
+        });
+        ui.separator();
         egui::CollapsingHeader::new(localisation.get_primemh("missiles"))
             .default_open(false)
             .show(ui, |ui| {
