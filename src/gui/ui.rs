@@ -630,7 +630,7 @@ fn snap_exits_to_warps(seed_data: &mut crate::mapgeneration::jsondata::SeedData,
                     let d = (p.world_x as i64 - tx as i64).abs() + (p.world_y as i64 - ty as i64).abs();
                     (d, p)
                 })
-                .filter(|(d, _)| *d <= 60)
+                .filter(|(d, _)| *d <= 100)
                 .min_by_key(|(d, _)| *d);
             if let Some((_, poi)) = best {
                 poi.world_x = tx;

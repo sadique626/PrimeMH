@@ -106,7 +106,20 @@ fn convert_level(level: &LevelRef<'_>, map_seed: u32) -> Option<LevelData> {
     if x1 < x0 || y1 < y0 {
         return None; // no floor at all
     }
+    // objects first, in uncropped level coordinates
+    let walk = Walk { cells, width, height };
+    let all_objects: Vec<Object> = convert_presets(level, map_seed, &walk);
+
     let (x0, y0, x1, y1) = if matches!(level.kind(), LevelKind::Maze) {
+        // keep every exit inside the cropped area: a warp's marker sits at its room's centre,
+        // which can lie outside the floor's bounding box
+        let (mut x0, mut y0, mut x1, mut y1) = (x0, y0, x1, y1);
+        for o in all_objects.iter().filter(|o| o.object_type == "exit") {
+            x0 = x0.min(o.x as usize);
+            y0 = y0.min(o.y as usize);
+            x1 = x1.max(o.x as usize);
+            y1 = y1.max(o.y as usize);
+        }
         (x0.saturating_sub(2), y0.saturating_sub(2), (x1 + 2).min(width - 1), (y1 + 2).min(height - 1))
     } else {
         // only random dungeons are cropped; fixed layouts keep their original coordinates
@@ -118,8 +131,7 @@ fn convert_level(level: &LevelRef<'_>, map_seed: u32) -> Option<LevelData> {
     let map: Vec<Vec<u64>> = (y0..=y1)
         .map(|y| encode_row((x0..=x1).map(|x| is_blocked(cells[y * width + x]))))
         .collect();
-    let walk = Walk { cells, width, height };
-    let objects: Vec<Object> = convert_presets(level, map_seed, &walk)
+    let objects: Vec<Object> = all_objects
         .into_iter()
         .filter(|o| (o.x as usize) >= x0 && (o.x as usize) <= x1 && (o.y as usize) >= y0 && (o.y as usize) <= y1)
         .map(|mut o| {
