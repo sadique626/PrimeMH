@@ -83,11 +83,6 @@ impl D2RInstance {
         ok != 0 && code == 259 /* STILL_ACTIVE */ && window_ok
     }
 
-    /// Close the process handle (call once, when the instance is dropped from the list).
-    pub fn close(&self) {
-        unsafe { CloseHandle(self.handle) };
-    }
-
     pub fn new(window: &WindowInfo) -> Self {
         // https://docs.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-openprocess?redirectedfrom=MSDN
         let pid: u32 = window.pid;
