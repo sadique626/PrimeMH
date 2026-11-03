@@ -37,7 +37,7 @@ fn draw_chest(
     width: &f32, 
     height: &f32
 ) {
-    if chest.chest_state.is_none() || chest.mode != GameObjectMode::Neutral || !settings.chests.enabled {
+    if chest.chest_state.is_none() || chest.mode != GameObjectMode::Neutral || !settings.chests.enabled || settings.chests.super_only {
         return;
     }
     let scale = settings.visual.scale;

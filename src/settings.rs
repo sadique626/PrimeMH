@@ -212,6 +212,9 @@ impl Default for Missiles {
 pub struct Chests {
     pub enabled: bool,
     pub size: f32,
+    /// only show super chests (the big, better-loot ones), not every chest
+    #[serde(default)]
+    pub super_only: bool,
 }
 
 impl Default for Chests {
@@ -219,6 +222,7 @@ impl Default for Chests {
         Chests {
             enabled: true,
             size: 0.1,
+            super_only: false,
         }
     }
 }
@@ -251,6 +255,9 @@ pub struct Shrines {
     pub enabled: bool,
     pub size: f32,
     pub text_size: f32,
+    /// shrine types not to show, e.g. ["Health", "Mana"]; "Unknown" = not identified yet
+    #[serde(default)]
+    pub hidden: Vec<String>,
 }
 
 impl Default for Shrines {
@@ -259,6 +266,7 @@ impl Default for Shrines {
             enabled: true,
             size: 0.1,
             text_size: 5.0,
+            hidden: vec![],
         }
     }
 }

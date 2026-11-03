@@ -62,6 +62,8 @@ pub fn draw_presets(
                     },
                     None => String::new(),
                 };
+                // remember the type so the shrine filter can hide it
+                poi.class = shrine.shrine_type.map(|t| format!("{:?}", t)).unwrap_or_default();
             }
             if shrine.object_type == GameObjectType::Well
                 && shrine.pos_x == poi.world_x
@@ -84,7 +86,8 @@ pub fn draw_presets(
                             
                         } else {
                             let label =  shrine_type.to_string();
-                            let new_shrine = POI::new_shrine(shrine.pos_x, shrine.pos_y, &this_level.offset, label);
+                            let mut new_shrine = POI::new_shrine(shrine.pos_x, shrine.pos_y, &this_level.offset, label);
+                            new_shrine.class = format!("{:?}", shrine_type);
                             this_level.level_image.pois.push(new_shrine);    
                         }
                     }
@@ -265,6 +268,12 @@ fn draw_npc_spawn(poi: &POI, player_pos: (f32, f32), draw: &mut Draw, scale: f32
 fn draw_shrine(poi: &POI, player_pos: (f32, f32), draw: &mut Draw, settings: &Settings, image: &Texture, width: &f32, height: &f32, all_fonts: &Fonts) {
     if !settings.shrines.enabled {
         return;
+    }
+    if poi.poi_type == POIType::Shrine {
+        let kind = if poi.class.is_empty() || poi.class == "None" { "Unknown" } else { poi.class.as_str() };
+        if settings.shrines.hidden.iter().any(|h| h == kind) {
+            return;
+        }
     }
     let scale = settings.visual.scale;
     let unit_pos = (poi.world_x as f32, poi.world_y as f32);

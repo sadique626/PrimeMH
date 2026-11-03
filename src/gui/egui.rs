@@ -116,6 +116,8 @@ pub fn create_egui_panel(app: &mut App, ctx: &Context, state: &mut State, hwnd: 
                     .show(ui, |ui| {
                         ui.label(localisation.get_primemh("show_chests"));
                         ui.add(egui::Checkbox::new(&mut state.settings.chests.enabled, ""));
+                        ui.label("Super chests only");
+                        ui.add(egui::Checkbox::new(&mut state.settings.chests.super_only, ""));
                         ui.label(localisation.get_primemh("size"));
                         ui.add(
                             egui::DragValue::new(&mut state.settings.chests.size)
@@ -158,6 +160,29 @@ pub fn create_egui_panel(app: &mut App, ctx: &Context, state: &mut State, hwnd: 
                         );
                         ui.end_row();
                     });
+                egui::CollapsingHeader::new("Shrine types to show").default_open(false).show(ui, |ui| {
+                    egui::Grid::new("shrine_types_grid").num_columns(3).spacing([12.0, 4.0]).show(ui, |ui| {
+                        const TYPES: [&str; 23] = [
+                            "Experience", "Skill", "Gem", "Combat", "Armor", "ManaRecharge", "Stamina",
+                            "ResistFire", "ResistCold", "ResistLightning", "ResistPoison",
+                            "Refilling", "Health", "Mana", "HealthExchange", "ManaExchange",
+                            "Enirhs", "Portal", "Fire", "Monster", "Exploding", "Poison", "Unknown",
+                        ];
+                        for (i, t) in TYPES.iter().enumerate() {
+                            let mut shown = !state.settings.shrines.hidden.iter().any(|h| h == t);
+                            let label = if *t == "Unknown" { "Not identified yet" } else { t };
+                            if ui.checkbox(&mut shown, label).changed() {
+                                state.settings.shrines.hidden.retain(|h| h != t);
+                                if !shown {
+                                    state.settings.shrines.hidden.push(t.to_string());
+                                }
+                            }
+                            if i % 3 == 2 {
+                                ui.end_row();
+                            }
+                        }
+                    });
+                });
             });
 
         ui.separator();

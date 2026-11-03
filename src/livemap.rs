@@ -46,7 +46,7 @@ struct Layout {
     near_count: u64,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct LiveRoom {
     level: u32,
     x: u32,
@@ -75,6 +75,37 @@ pub struct LiveMap {
     warps: HashMap<(u32, u32), (u32, u32)>,
     /// destinations libd2 knew for a level before it was replaced by the live map
     known_dests: HashMap<u32, Vec<u32>>,
+    /// explored rooms changed since the last save to disk
+    unsaved: bool,
+    last_save: Instant,
+}
+
+/// What is remembered on disk per game seed, so rejoining the same game shows what was explored.
+#[derive(serde::Serialize, serde::Deserialize, Default)]
+struct SavedMap {
+    rooms: Vec<SavedRoom>,
+    warps: Vec<(u32, u32, u32, u32)>, // x, y, level, destination
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SavedRoom {
+    level: u32,
+    x: u32,
+    y: u32,
+    w: u32,
+    h: u32,
+    /// blocked cells, one bit each
+    bits: Vec<u8>,
+}
+
+const SAVE_INTERVAL: Duration = Duration::from_secs(10);
+
+fn save_dir() -> std::path::PathBuf {
+    std::path::PathBuf::from("livemap_cache")
+}
+
+fn save_path(seed: u32) -> std::path::PathBuf {
+    save_dir().join(format!("{seed}.json"))
 }
 
 impl Default for LiveMap {
@@ -93,6 +124,8 @@ impl Default for LiveMap {
             mismatched: HashSet::new(),
             warps: HashMap::new(),
             known_dests: HashMap::new(),
+            unsaved: false,
+            last_save: Instant::now(),
         }
     }
 }
@@ -144,6 +177,7 @@ impl LiveMap {
             self.warps.clear();
             self.known_dests.clear();
             self.seed = seed;
+            self.load();
         }
         let live_levels_present = seed_data.levels.iter().any(|l| l.level_type == "live");
         let unchecked = current_level <= LAST_VANILLA_LEVEL
@@ -165,6 +199,9 @@ impl LiveMap {
                 }
             }
             self.find_warps(d2r, warp_tiles, seed_data);
+        }
+        if self.unsaved && self.last_save.elapsed() >= SAVE_INTERVAL {
+            self.save();
         }
         if self.dirty.is_empty() || self.last_build.elapsed() < BUILD_INTERVAL {
             return false;
@@ -206,6 +243,70 @@ impl LiveMap {
         path.p_room
     }
 
+    /// Write the explored rooms of this game to livemap_cache/<seed>.json.
+    fn save(&mut self) {
+        self.last_save = Instant::now();
+        self.unsaved = false;
+        let saved = SavedMap {
+            rooms: self
+                .rooms
+                .values()
+                .map(|r| {
+                    let mut bits = vec![0u8; (r.blocked.len() + 7) / 8];
+                    for (i, b) in r.blocked.iter().enumerate() {
+                        if *b {
+                            bits[i / 8] |= 1 << (i % 8);
+                        }
+                    }
+                    SavedRoom { level: r.level, x: r.x, y: r.y, w: r.w, h: r.h, bits }
+                })
+                .collect(),
+            warps: self.warps.iter().map(|((x, y), (l, d))| (*x, *y, *l, *d)).collect(),
+        };
+        let _ = std::fs::create_dir_all(save_dir());
+        match serde_json::to_string(&saved) {
+            Ok(text) => {
+                if let Err(e) = std::fs::write(save_path(self.seed), text) {
+                    log::warn!("Live map: could not save explored rooms: {}", e);
+                }
+            }
+            Err(e) => log::warn!("Live map: could not save explored rooms: {}", e),
+        }
+        // keep the folder small: forget games older than a week
+        if let Ok(entries) = std::fs::read_dir(save_dir()) {
+            for e in entries.flatten() {
+                let old = e
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| t.elapsed().ok())
+                    .map_or(false, |age| age > Duration::from_secs(7 * 24 * 3600));
+                if old {
+                    let _ = std::fs::remove_file(e.path());
+                }
+            }
+        }
+    }
+
+    /// Load what was explored earlier in this same game (same seed), if anything.
+    fn load(&mut self) {
+        let Ok(text) = std::fs::read_to_string(save_path(self.seed)) else { return };
+        let Ok(saved) = serde_json::from_str::<SavedMap>(&text) else { return };
+        for r in saved.rooms {
+            if !sane_size(r.w, r.h) {
+                continue;
+            }
+            let n = (r.w * r.h) as usize;
+            let blocked: Vec<bool> = (0..n).map(|i| r.bits.get(i / 8).map_or(true, |b| b & (1 << (i % 8)) != 0)).collect();
+            self.dirty.insert(r.level);
+            self.rooms.insert((r.level, r.x, r.y), LiveRoom { level: r.level, x: r.x, y: r.y, w: r.w, h: r.h, blocked });
+        }
+        for (x, y, l, d) in saved.warps {
+            self.warps.insert((x, y), (l, d));
+        }
+        log::info!("Live map: loaded {} explored rooms from earlier in this game", self.rooms.len());
+    }
+
     /// Work out where each loaded warp tile in a live level leads. The warp's room (Room2)
     /// points at the room on the other side of the warp; that room's level is the destination.
     fn find_warps(&mut self, d2r: &D2RInstance, warp_tiles: &[(u32, u32, u64)], seed_data: &SeedData) {
@@ -230,6 +331,7 @@ impl LiveMap {
                 log::info!("Live map: warp at {},{} in level {} leads to level {}", x, y, own, dest);
                 self.warps.insert((x, y), (own, dest));
                 self.dirty.insert(own);
+                self.unsaved = true;
             }
         }
     }
@@ -318,6 +420,7 @@ impl LiveMap {
                     let key = (live.level, live.x, live.y);
                     if self.rooms.get(&key) != Some(&live) {
                         self.dirty.insert(live.level);
+                        self.unsaved = true;
                         self.rooms.insert(key, live);
                     }
                 }
