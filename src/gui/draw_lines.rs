@@ -21,13 +21,14 @@ pub fn draw_lines(draw: &mut Draw, this_level: &LevelData, game_data: &GameData,
             let preset_pos = (poi.pos_x + this_level.offset.x as f32, poi.pos_y + this_level.offset.y as f32);
             let target_pos = transform_position(preset_pos, player_pos, settings.visual.scale, width, height);
             match poi.poi_type {
-                POIType::Waypoint => {
+                // when "Path" is ticked, draw_path draws the walking route instead
+                POIType::Waypoint if !settings.lines.waypoint_path_enabled => {
                     draw_waypoint_line(target_pos, draw, settings, width, height);
                 }
-                POIType::Exit => {
+                POIType::Exit if !settings.lines.exit_path_enabled => {
                     draw_exit_line(target_pos, draw, poi.id, current_level_id, settings, width, height);
                 }
-                POIType::GoodExit => {
+                POIType::GoodExit if !settings.lines.exit_path_enabled => {
                     // line to the real Tal Rasha's tomb in Canyon of the Magi
                     if settings.lines.exit_enabled {
                         draw.line((*width / 2.0, *height / 2.0), target_pos)
@@ -35,10 +36,10 @@ pub fn draw_lines(draw: &mut Draw, this_level: &LevelData, game_data: &GameData,
                             .color(Color::from_rgb(0.0, 1.0, 0.0));
                     }
                 }
-                POIType::QuestItem => {
+                POIType::QuestItem if !settings.lines.quest_path_enabled => {
                     draw_quest_line(target_pos, draw, settings, width, height);
                 }
-                POIType::NPCSpawn => {
+                POIType::NPCSpawn if !settings.lines.boss_path_enabled => {
                     draw_boss_spawn_line(target_pos, draw, settings, width, height);
                 }
                 _ => (),

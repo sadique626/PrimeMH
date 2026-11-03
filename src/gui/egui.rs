@@ -324,6 +324,9 @@ pub fn create_egui_panel(app: &mut App, ctx: &Context, state: &mut State, hwnd: 
                     ui.label(localisation.get_primemh("party_info_enabled"));
                     ui.add(egui::Checkbox::new(&mut state.settings.party_info.enabled, ""));
                     ui.end_row();
+                    ui.label("Friend tracking (line / arrow)");
+                    ui.add(egui::Checkbox::new(&mut state.settings.party_info.friend_tracking, ""));
+                    ui.end_row();
                     
                 });
         });

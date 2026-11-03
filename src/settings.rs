@@ -99,13 +99,16 @@ impl Default for BuffBar {
 #[allow(unused)]
 pub struct PartyInfo {
     pub enabled: bool,
-    
+    /// line to party members in your area, arrow + area name for those elsewhere
+    #[serde(default = "get_true")]
+    pub friend_tracking: bool,
 }
 
 impl Default for PartyInfo {
     fn default() -> Self {
         PartyInfo {
             enabled: true,
+            friend_tracking: true,
         }
     }
 }

@@ -58,7 +58,7 @@ pub fn draw_units(draw: &mut Draw, game_data: &GameData, settings: &Settings, wi
             !game_data
                 .players
                 .iter()
-                .any(|player| player.unit_id == other_player.unit_id && same_levels.contains(&(other_player.area as u32)))
+                .any(|player| player.unit_id == other_player.unit_id && same_levels.contains(&other_player.area_id))
         })
         .collect();
 
@@ -66,7 +66,7 @@ pub fn draw_units(draw: &mut Draw, game_data: &GameData, settings: &Settings, wi
 
     // if other players don't exist on unit tables, use roster data to draw them on map
     roster_players.iter().for_each(|other_player| {
-        if game_data.player.unit_id != other_player.unit_id && same_levels.contains(&(other_player.area as u32)){
+        if game_data.player.unit_id != other_player.unit_id && same_levels.contains(&other_player.area_id){
             let is_hostile = hostile_unit_ids.iter().any(|h| *h == other_player.unit_id);
             draw_other_player(
                 (other_player.pos_x as f32, other_player.pos_y as f32),
@@ -105,6 +105,11 @@ pub fn draw_units(draw: &mut Draw, game_data: &GameData, settings: &Settings, wi
             }
         }
     });
+
+    // friend tracking: a line to party members in this area, an arrow towards those elsewhere
+    if settings.party_info.friend_tracking {
+        draw_friend_tracking(draw, game_data, settings, fonts, width, height);
+    }
 
     // draw missiles
     if settings.missiles.enabled {
@@ -556,4 +561,74 @@ fn draw_immunities(npc_pos: (f32, f32), size: (f32, f32), immunities: HashSet<Im
         }
     }
     
+}
+
+fn draw_friend_tracking(draw: &mut Draw, game_data: &GameData, settings: &Settings, fonts: &Fonts, width: &f32, height: &f32) {
+    let me = game_data.player.unit_id;
+    let player_pos = (game_data.player.pos_x, game_data.player.pos_y);
+    let scale = settings.visual.scale;
+    let centre = (*width / 2.0, *height / 2.0);
+    let colour = Color::from_rgb(0.2, 0.9, 1.0);
+    let font = fonts.get_safe_font(&settings.general.language);
+    let same_levels = get_attached_levels(&game_data.seed_values.level);
+    let current_act = act_of(game_data.seed_values.level);
+
+    let mut row = 0;
+    for friend in game_data.roster_items.iter().filter(|r| r.unit_id != me && r.pos_x > 0 && r.pos_y > 0) {
+        // prefer the live position from the unit table when the friend is nearby
+        let pos = game_data
+            .players
+            .iter()
+            .find(|p| p.unit_id == friend.unit_id && p.pos_x > 0.0)
+            .map(|p| (p.pos_x, p.pos_y))
+            .unwrap_or((friend.pos_x as f32, friend.pos_y as f32));
+        let target = transform_position(pos, (0.0, 0.0), player_pos, scale, width, height);
+
+        if same_levels.contains(&friend.area_id) {
+            draw.line(centre, target).width(settings.lines.line_width).color(colour).alpha(0.6);
+            continue;
+        }
+
+        // somewhere else: say where, and point the way if it is in the same act
+        let area = {
+            let localisation = LOCALISATION.lock().unwrap();
+            localisation.get_level(&friend.area_id)
+        };
+        let label = if area.is_empty() { friend.name.clone() } else { format!("{} - {}", friend.name, area) };
+        if act_of(friend.area_id) == current_act && current_act != 0 {
+            let (dx, dy) = (target.0 - centre.0, target.1 - centre.1);
+            let len = (dx * dx + dy * dy).sqrt().max(1.0);
+            let r = (*height * 0.18).max(60.0);
+            let tip = (centre.0 + dx / len * r, centre.1 + dy / len * r);
+            let back = (centre.0 + dx / len * (r - 14.0), centre.1 + dy / len * (r - 14.0));
+            let side = (-dy / len * 6.0, dx / len * 6.0);
+            draw.triangle(tip, (back.0 + side.0, back.1 + side.1), (back.0 - side.0, back.1 - side.1)).color(colour);
+            draw.text(&font, &label)
+                .position(tip.0 + dx / len * 10.0, tip.1 + dy / len * 10.0)
+                .size(12.0)
+                .color(colour)
+                .h_align_center()
+                .v_align_middle();
+        } else {
+            draw.text(&font, &label)
+                .position(*width / 2.0, 40.0 + row as f32 * 16.0)
+                .size(12.0)
+                .color(colour)
+                .h_align_center()
+                .v_align_top();
+            row += 1;
+        }
+    }
+}
+
+/// Act (1-5) a level belongs to, 0 for unknown / mod-added levels.
+fn act_of(level: u32) -> u32 {
+    match level {
+        1..=39 => 1,
+        40..=74 => 2,
+        75..=102 => 3,
+        103..=108 => 4,
+        109..=136 => 5,
+        _ => 0,
+    }
 }

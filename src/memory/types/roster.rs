@@ -16,6 +16,8 @@ pub struct RosterItem {
     pub player_level: u16,
     pub party_id: u16,
     pub area: LevelName,
+    /// raw level id (also for mod-added levels that have no LevelName)
+    pub area_id: u32,
     pub pos_x: u32,
     pub pos_y: u32,
     pub party_flags: u32,
@@ -30,7 +32,9 @@ impl RosterItem {
             player_class: unsafe { transmute::<u32, PlayerClass>(roster.player_class as u32) },
             player_level: roster.player_level,
             party_id: roster.party_id,
-            area: unsafe { transmute::<u32, LevelName>(roster.area as u32) },
+            // a mod-added level id is not a valid LevelName, so never transmute it
+            area: num_traits::FromPrimitive::from_u32(roster.area as u32).unwrap_or_default(),
+            area_id: roster.area as u32,
             pos_x: roster.pos_x,
             pos_y: roster.pos_y,
             party_flags: roster.party_flags,
