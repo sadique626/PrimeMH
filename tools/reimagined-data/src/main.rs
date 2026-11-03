@@ -1,6 +1,6 @@
 //! Reimagined Data: a small always-on-top window with the d2r-reimagined.com item data
 //! (uniques, sets, runewords, bases, affixes, cube recipes, orbs) and website-style tooltips.
-//! It snaps to the top-left corner of the game window. Ctrl+Alt+D folds it away.
+//! It snaps to the top-left corner of the game window. Ctrl+Alt+F folds it away.
 
 #![windows_subsystem = "windows"]
 
@@ -183,7 +183,7 @@ impl eframe::App for App {
 
         if self.folded {
             egui::CentralPanel::default().show(ctx, |ui| {
-                if ui.button(RichText::new("Reimagined Data  (Ctrl+Alt+D)").family(exocet()).size(12.0)).clicked() {
+                if ui.button(RichText::new("Reimagined Data  (Ctrl+Alt+F)").family(exocet()).size(12.0)).clicked() {
                     self.set_folded(ctx, false);
                 }
             });
@@ -194,7 +194,7 @@ impl eframe::App for App {
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Reimagined Data").family(exocet()).size(16.0).color(colour(Kind::Unique)));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Fold (Ctrl+Alt+D)").clicked() {
+                    if ui.button("Fold (Ctrl+Alt+F)").clicked() {
                         self.set_folded(ctx, true);
                     }
                     ui.checkbox(&mut self.snap, "Snap to game");
@@ -325,7 +325,7 @@ fn hotkey_pressed() -> bool {
     use winapi::um::winuser::{GetAsyncKeyState, VK_CONTROL, VK_MENU};
     unsafe {
         let down = |k: i32| (GetAsyncKeyState(k) as u16 & 0x8000) != 0;
-        down(VK_CONTROL) && down(VK_MENU) && down('D' as i32)
+        down(VK_CONTROL) && down(VK_MENU) && down('F' as i32)
     }
 }
 
