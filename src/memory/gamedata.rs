@@ -3,6 +3,18 @@ use crate::types::{
      get_missiles, get_units, item::ItemUnit, keybindings::KeyBindings, last_hovered::LastHovered, missile::MissileUnit, npc::NPCUnit, object::GameObjectUnit, player::{self, PlayerUnit}, roster::{self, RosterItem}, seedvalues::SeedValues
 };
 
+#[derive(Debug, Clone)]
+pub struct GroundItem {
+    pub unit_id: u32,
+    pub txt_file_no: u32,
+    /// 1 low, 2 normal, 3 superior, 4 magic, 5 set, 6 rare, 7 unique, 8 crafted
+    pub quality: u32,
+    /// which unique / set item it is (uniqueitems.txt / setitems.txt *ID), set before identifying
+    pub file_index: u32,
+    pub x: u32,
+    pub y: u32,
+}
+
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct GameData {
@@ -23,6 +35,8 @@ pub struct GameData {
     pub warp_tile_rooms: Vec<(u32, u32, u64)>,
     /// the player's total experience (read as a full 32-bit value)
     pub player_experience: Option<u32>,
+    /// unique and set relevant info of items lying on the ground
+    pub ground_items: Vec<GroundItem>,
 }
 
 impl GameData {
@@ -93,6 +107,7 @@ impl GameData {
             warp_tiles,
             warp_tile_rooms,
             player_experience,
+            ground_items: read_ground_items(d2rprocess, unit_ptrs.item_ptrs),
         })
     }
 
@@ -151,4 +166,19 @@ fn read_experience(d2rprocess: &D2RInstance, unit: &super::structs::Unit) -> Opt
         }
     }
     best
+}
+
+/// Items on the ground (mode 3) or dropping (mode 5). ItemData: quality at 0x00, file index at 0x34.
+fn read_ground_items(d2rprocess: &D2RInstance, item_ptrs: [u64; 128]) -> Vec<GroundItem> {
+    crate::types::get_raw_units(d2rprocess, item_ptrs)
+        .into_iter()
+        .filter(|u| (u.mode == 3 || u.mode == 5) && u.p_unit_data != 0)
+        .filter_map(|u| {
+            let data = d2rprocess.read_bytes(u.p_unit_data, 0x38)?;
+            let quality = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+            let file_index = u32::from_le_bytes([data[0x34], data[0x35], data[0x36], data[0x37]]);
+            let path: crate::memory::structs::StaticPath = d2rprocess.read_mem(u.p_path);
+            Some(GroundItem { unit_id: u.unit_id, txt_file_no: u.txt_file_no, quality, file_index, x: path.x, y: path.y })
+        })
+        .collect()
 }

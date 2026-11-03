@@ -97,6 +97,23 @@ impl Default for BuffBar {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[allow(unused)]
+pub struct DropLogSettings {
+    pub enabled: bool,
+    /// how long a drop stays in the list, in seconds
+    pub duration_secs: u32,
+    /// top of the list, as a fraction of the window height (right side)
+    pub pos_y: f32,
+    pub text_size: f32,
+}
+
+impl Default for DropLogSettings {
+    fn default() -> Self {
+        DropLogSettings { enabled: true, duration_secs: 120, pos_y: 0.32, text_size: 14.0 }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[allow(unused)]
 pub struct RunStatsSettings {
     pub enabled: bool,
     /// where the block sits, as a fraction of the window (right edge of the text)
@@ -467,6 +484,8 @@ pub struct Settings {
     pub party_info: PartyInfo,
     #[serde(default)]
     pub run_stats: RunStatsSettings,
+    #[serde(default)]
+    pub drop_log: DropLogSettings,
 }
 
 impl Default for Settings {
@@ -486,6 +505,7 @@ impl Default for Settings {
             hotkeys: HotKeys::default(),
             party_info: PartyInfo::default(),
             run_stats: RunStatsSettings::default(),
+            drop_log: DropLogSettings::default(),
         }
     }
 }

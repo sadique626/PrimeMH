@@ -349,6 +349,15 @@ pub fn create_egui_panel(app: &mut App, ctx: &Context, state: &mut State, hwnd: 
                     ui.label(localisation.get_primemh("party_info_enabled"));
                     ui.add(egui::Checkbox::new(&mut state.settings.party_info.enabled, ""));
                     ui.end_row();
+                    ui.label("Drop log (uniques and sets)");
+                    ui.add(egui::Checkbox::new(&mut state.settings.drop_log.enabled, ""));
+                    ui.end_row();
+                    ui.label("Drop log seconds shown");
+                    ui.add(egui::DragValue::new(&mut state.settings.drop_log.duration_secs).range(5..=3600).speed(5));
+                    ui.end_row();
+                    ui.label("Drop log text size");
+                    ui.add(egui::DragValue::new(&mut state.settings.drop_log.text_size).range(6.0..=40.0).speed(0.5));
+                    ui.end_row();
                     ui.label("Run timer and stats");
                     ui.add(egui::Checkbox::new(&mut state.settings.run_stats.enabled, ""));
                     ui.end_row();
