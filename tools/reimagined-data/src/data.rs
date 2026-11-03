@@ -196,29 +196,52 @@ fn read(dir: &Path, name: &str) -> Vec<Value> {
 
 /// Rows of magicprefix.txt / magicsuffix.txt as (name, level). A cube recipe's "pre=N" /
 /// "suf=N" is the Nth data row (0-based, header excluded).
-fn affix_rows(dir: &Path, file: &str) -> Vec<(String, f64)> {
+fn affix_rows(dir: &Path, file: &str) -> Vec<(String, f64, String)> {
     let Ok(text) = std::fs::read(dir.join(file)) else { return vec![] };
     let text: String = text.iter().map(|b| *b as char).collect(); // latin-1
     let mut lines = text.lines();
     let header: Vec<&str> = lines.next().unwrap_or("").split('\t').collect();
     let level_col = header.iter().position(|h| h.eq_ignore_ascii_case("level")).unwrap_or(5);
+    let desc_col = header.iter().position(|h| h.contains("Description")).unwrap_or(1);
     lines
         .map(|l| {
             let c: Vec<&str> = l.split('\t').collect();
-            (c.first().unwrap_or(&"").to_string(), c.get(level_col).and_then(|v| v.trim().parse().ok()).unwrap_or(-1.0))
+            (
+                c.first().unwrap_or(&"").to_string(),
+                c.get(level_col).and_then(|v| v.trim().parse().ok()).unwrap_or(-1.0),
+                c.get(desc_col).unwrap_or(&"").to_string(),
+            )
         })
         .collect()
 }
 
 /// "Force Prefix (365)" -> "Force Prefix: Coral (+15-20% Lightning Resist)"
 struct AffixNames {
-    prefixes: Vec<(String, f64)>,
-    suffixes: Vec<(String, f64)>,
+    prefixes: Vec<(String, f64, String)>,
+    suffixes: Vec<(String, f64, String)>,
     /// (json file, name, level) -> rendered stat lines
     lines: std::collections::HashMap<(bool, String, i64), String>,
 }
 
 impl AffixNames {
+    /// Short stat name of a forced affix, e.g. "Lightning Resist +#%" -> "Lightning Resist"
+    fn short(&self, q: &Value) -> Option<String> {
+        let prefix = match s(q, "key") {
+            "strCubeQualifierForcePrefixN" => true,
+            "strCubeQualifierForceSuffixN" => false,
+            _ => return None,
+        };
+        let n = q.get("args").and_then(|a| a.get(0)).and_then(|a| a.as_f64())? as usize;
+        let (name, _, desc) = if prefix { self.prefixes.get(n)? } else { self.suffixes.get(n)? };
+        let cleaned: String = desc
+            .split_whitespace()
+            .filter(|w| !w.contains('#') && !w.chars().all(|c| c.is_ascii_digit() || "+-%".contains(c)))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let cleaned = cleaned.trim_matches(|c: char| c == ':' || c == '+' || c == '-' || c == ' ').to_string();
+        Some(if cleaned.is_empty() { name.clone() } else { cleaned })
+    }
+
     fn describe(&self, st: &Strings, q: &Value) -> Option<String> {
         let key = s(q, "key");
         let prefix = match key {
@@ -227,7 +250,7 @@ impl AffixNames {
             _ => return None,
         };
         let n = q.get("args").and_then(|a| a.get(0)).and_then(|a| a.as_f64())? as usize;
-        let (name, level) = if prefix { self.prefixes.get(n)? } else { self.suffixes.get(n)? };
+        let (name, level, _) = if prefix { self.prefixes.get(n)? } else { self.suffixes.get(n)? };
         let label = if prefix { "Force Prefix" } else { "Force Suffix" };
         let stats = self.lines.get(&(prefix, name.clone(), *level as i64)).cloned().unwrap_or_default();
         let shown = st.get(name);
@@ -414,9 +437,125 @@ pub fn load(dir: &Path) -> Result<(Strings, Vec<Entry>), String> {
                 .join(" + "),
             _ => "Recipe".into(),
         };
-        let title = if desc.is_empty() { inputs_title } else { st.get(desc) };
+        let title = if !desc.is_empty() {
+            st.get(desc)
+        } else {
+            recipe_name(&r, &st, &affixes).unwrap_or(inputs_title)
+        };
         out.push(finish(if is_orb { Tab::Orbs } else { Tab::Cube }, title, Kind::Plain, String::new(), vec![], b.lines));
     }
 
     Ok((st, out))
+}
+
+/// A short "what it does" name for a cube recipe, e.g. "Lightning Resist Magic Ring",
+/// "Corrupt Amulet: +1 to All Skills", "Upgrade Rare Jewel -> Unique Jewel".
+fn recipe_name(r: &Value, st: &Strings, affixes: &AffixNames) -> Option<String> {
+    let quality = |q: &str| -> Option<&'static str> {
+        Some(match q {
+            "strCubeQualifierMagicItem" => "Magic",
+            "strCubeQualifierRareItem" => "Rare",
+            "strCubeQualifierUniqueItem" => "Unique",
+            "strCubeQualifierSetItem" => "Set",
+            "strCubeQualifierCraftedItem" => "Crafted",
+            "strCubeQualifierNormalQuality" | "strCubeQualifierNormalItem" | "strCubeQualifierBasicItem" => "Normal",
+            "strCubeQualifierHighQualitySuperior" | "strCubeQualifierHighQualityItemSuperior" => "Superior",
+            "strCubeQualifierLowQuality" => "Low Quality",
+            "strCubeQualifierEthereal" => "Ethereal",
+            "strCubeQualifierExceptionalItem" => "Exceptional",
+            "strCubeQualifierEliteItem" => "Elite",
+            _ => return None,
+        })
+    };
+    let quals = |v: &Value| -> Vec<&'static str> {
+        match v.get("Qualifiers") {
+            Some(Value::Array(q)) => q.iter().filter_map(|x| quality(s(x, "key"))).collect(),
+            _ => vec![],
+        }
+    };
+    let verb = |note: &str| -> Option<&'static str> {
+        Some(match note {
+            "strCubeNoteOrbOfCorruption" => "Corrupt",
+            "strCubeNoteItemCrafting" => "Craft",
+            "strCubeNoteItemEnchantment" => "Enchant",
+            "strCubeNoteSocketPunch" | "strCubeNoteSocketItem" | "strCubeNoteOrbOfSocketing" => "Socket",
+            "strCubeNoteRerollItem" | "strCubeNoteRerollUberAncient" => "Reroll",
+            "strCubeNoteRecycle" => "Recycle",
+            "strCubeNoteOrbOfConversion" | "strCubeNoteKeyConversion" => "Convert",
+            "strCubeNoteOrbOfInfusion" => "Infuse",
+            "strCubeNoteSunderItemCrafting" => "Sunder",
+            "strCubeNoteOrbOfAssemblage" => "Assemble",
+            "strCubeNoteTristramUberSouls" => "Uber Soul",
+            "strCubeNoteUberCharmUpgrade" | "strCubeNoteSplashCharmUpgrade" | "strCubeNoteBaseTierUpgrade" | "strCubeNoteJewelUpgrade" => "Upgrade",
+            "strCubeNoteForceWhite" => "Make Normal",
+            "strCubeNoteForceEthereal" => "Make Ethereal",
+            "strCubeNoteOrbOfShadows" => "Shadow",
+            "strCubeNoteRepairEthereal" | "strCubeNoteRepairNonEthereal" => "Repair",
+            "strCubeNotePliers" => "Unsocket",
+            "strCubeNoteReplenishQuiver" => "Refill",
+            _ => return None,
+        })
+    };
+    let output = r.get("Outputs").and_then(|o| o.as_object()).and_then(|o| o.values().next())?;
+    let out_key = output.get("Name").map(|n| s(n, "key")).unwrap_or("");
+    let notes: Vec<&str> = match r.get("Notes") {
+        Some(Value::Array(n)) => n.iter().map(|x| s(x, "key")).collect(),
+        _ => vec![],
+    };
+    let action = notes.iter().find_map(|n| verb(n));
+    let input = match r.get("Inputs") {
+        Some(Value::Array(i)) => i.first(),
+        _ => None,
+    };
+    let join = |parts: Vec<String>| parts.into_iter().filter(|p| !p.is_empty()).collect::<Vec<_>>().join(" ");
+    let subject = input
+        .map(|i| join(quals(i).into_iter().map(String::from).chain(std::iter::once(i.get("Name").map(|n| st.line(n)).unwrap_or_default())).collect()))
+        .unwrap_or_default();
+    let forced: Vec<String> = match output.get("Qualifiers") {
+        Some(Value::Array(q)) => q.iter().filter_map(|x| affixes.short(x)).collect(),
+        _ => vec![],
+    };
+    let out_quals: Vec<String> = quals(output).into_iter().map(String::from).collect();
+    // the stat lines the recipe adds, without counters like "Upgrades: 1 / 6"
+    let stats: Vec<String> = match output.get("Lines") {
+        Some(Value::Array(l)) => l
+            .iter()
+            .filter(|x| s(x, "key") != "Corrupted")
+            .map(|x| st.line(x))
+            .filter(|t| !t.trim().is_empty() && !(t.contains(" / ") && t.contains(':')))
+            .take(2)
+            .collect(),
+        _ => vec![],
+    };
+    let detail = if stats.is_empty() { String::new() } else { format!(": {}", stats.join(", ")) };
+
+    // portals and other fixed results
+    if out_key.starts_with("strCubeNote") {
+        return Some(st.get(out_key));
+    }
+    // the input item itself is changed
+    if out_key.starts_with("strCubeOutput") {
+        if !forced.is_empty() {
+            return Some(join(vec![forced.join(" "), subject]));
+        }
+        let mut head = join(vec![action.unwrap_or("Change").to_string(), subject]);
+        if out_key == "strCubeOutputUseTypeOfInput1" && !out_quals.is_empty() {
+            let to = out_quals.join(" ");
+            if to == "Crafted" && action == Some("Craft") {
+                head = format!("Crafted {}", input.and_then(|i| i.get("Name")).map(|n| st.line(n)).unwrap_or_default());
+            } else {
+                head = format!("{} → {}", head, to);
+            }
+        }
+        return Some(format!("{}{}", head, detail));
+    }
+    // a specific item comes out
+    let out_name = join(out_quals.iter().cloned().chain(std::iter::once(output.get("Name").map(|n| st.line(n)).unwrap_or_default())).collect());
+    if !forced.is_empty() {
+        return Some(join(vec![forced.join(" "), out_name]));
+    }
+    match action {
+        None | Some("Craft") => Some(format!("{}{}", out_name, detail)),
+        Some(a) => Some(format!("{} {} → {}", a, subject, out_name)),
+    }
 }
