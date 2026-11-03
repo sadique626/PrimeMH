@@ -289,6 +289,7 @@ fn update(app: &mut App, state: &mut State) {
                     game_data.seed_values.map_seed,
                     game_data.seed_values.level,
                     &mut state.seed_data,
+                    &game_data.warp_tile_rooms,
                 ) {
                     state.seed_data.update_names();
                     state.seed_data.process_map_data();

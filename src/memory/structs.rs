@@ -92,7 +92,7 @@ pub struct Path {
 #[repr(C)]
 #[derive(Copy, Clone, Default, Debug)]
 pub struct StaticPath {
-    room: u64,
+    pub room: u64,
     target_x: u32,
     target_y: u32,
     pub x: u32,

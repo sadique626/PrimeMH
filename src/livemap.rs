@@ -71,6 +71,10 @@ pub struct LiveMap {
     verified: HashSet<u32>,
     /// libd2 levels that did NOT match the game (e.g. changed by a mod): mapped live instead
     mismatched: HashSet<u32>,
+    /// warps seen in live levels: (x, y) -> (level the warp is in, level it leads to)
+    warps: HashMap<(u32, u32), (u32, u32)>,
+    /// destinations libd2 knew for a level before it was replaced by the live map
+    known_dests: HashMap<u32, Vec<u32>>,
 }
 
 impl Default for LiveMap {
@@ -87,6 +91,8 @@ impl Default for LiveMap {
             checks: HashMap::new(),
             verified: HashSet::new(),
             mismatched: HashSet::new(),
+            warps: HashMap::new(),
+            known_dests: HashMap::new(),
         }
     }
 }
@@ -120,13 +126,23 @@ fn sane_size(w: u32, h: u32) -> bool {
 impl LiveMap {
     /// Call once per frame while in game. Cheap when the current level is a vanilla one.
     /// Returns true if `seed_data` was changed (new or updated live levels were inserted).
-    pub fn update(&mut self, d2r: &D2RInstance, player: &PlayerUnit, seed: u32, current_level: u32, seed_data: &mut SeedData) -> bool {
+    pub fn update(
+        &mut self,
+        d2r: &D2RInstance,
+        player: &PlayerUnit,
+        seed: u32,
+        current_level: u32,
+        seed_data: &mut SeedData,
+        warp_tiles: &[(u32, u32, u64)],
+    ) -> bool {
         if seed != self.seed {
             self.rooms.clear();
             self.dirty.clear();
             self.checks.clear();
             self.verified.clear();
             self.mismatched.clear();
+            self.warps.clear();
+            self.known_dests.clear();
             self.seed = seed;
         }
         let live_levels_present = seed_data.levels.iter().any(|l| l.level_type == "live");
@@ -141,11 +157,14 @@ impl LiveMap {
             self.scan(d2r, player, seed_data);
             // a generated level that turned out not to match the game is replaced by the live map
             for id in self.mismatched.iter() {
-                if seed_data.levels.iter().any(|l| l.id == *id && l.level_type != "live") {
+                if let Some(old) = seed_data.levels.iter().find(|l| l.id == *id && l.level_type != "live") {
+                    let dests: Vec<u32> = old.objects.iter().filter(|o| o.object_type == "exit").map(|o| o.id).collect();
+                    self.known_dests.insert(*id, dests);
                     seed_data.levels.retain(|l| l.id != *id);
                     self.dirty.insert(*id);
                 }
             }
+            self.find_warps(d2r, warp_tiles, seed_data);
         }
         if self.dirty.is_empty() || self.last_build.elapsed() < BUILD_INTERVAL {
             return false;
@@ -185,6 +204,34 @@ impl LiveMap {
     fn player_room(d2r: &D2RInstance, player: &PlayerUnit) -> u64 {
         let path: Path = d2r.read_mem::<Path>(player.raw.p_path);
         path.p_room
+    }
+
+    /// Work out where each loaded warp tile in a live level leads. The warp's room (Room2)
+    /// points at the room on the other side of the warp; that room's level is the destination.
+    fn find_warps(&mut self, d2r: &D2RInstance, warp_tiles: &[(u32, u32, u64)], seed_data: &SeedData) {
+        for &(x, y, room1) in warp_tiles {
+            if self.warps.contains_key(&(x, y)) || !looks_like_ptr(room1) {
+                continue;
+            }
+            let Some(head) = d2r.read_bytes(room1, 0x100) else { continue };
+            let own = level_of_room(d2r, &head);
+            if own == 0 {
+                continue;
+            }
+            let live = own > LAST_VANILLA_LEVEL
+                || self.mismatched.contains(&own)
+                || !seed_data.levels.iter().any(|l| l.id == own && l.level_type != "live");
+            if !live {
+                continue; // libd2 already has exits for this level
+            }
+            let allowed = self.known_dests.get(&own);
+            let room2 = u64_at(&head, ROOM1_TO_ROOM2 as usize);
+            if let Some(dest) = warp_destination(d2r, room2, own, allowed.map(|v| v.as_slice())) {
+                log::info!("Live map: warp at {},{} in level {} leads to level {}", x, y, own, dest);
+                self.warps.insert((x, y), (own, dest));
+                self.dirty.insert(own);
+            }
+        }
     }
 
     /// Compare a room the game has loaded with the libd2 map of the same level.
@@ -331,7 +378,23 @@ impl LiveMap {
             name: Default::default(),
             offset: Offset { x: min_x, y: min_y },
             size: Size { width: width as u32, height: height as u32 },
-            objects: vec![],
+            objects: self
+                .warps
+                .iter()
+                .filter(|(_, (lvl, _))| *lvl == level_id)
+                .filter(|((x, y), _)| *x >= min_x && *y >= min_y)
+                .map(|((x, y), (_, dest))| crate::mapgeneration::jsondata::Object {
+                    id: *dest,
+                    object_type: "exit".to_owned(),
+                    x: x - min_x,
+                    y: y - min_y,
+                    name: String::new(),
+                    class: String::new(),
+                    op: 0,
+                    is_good_exit: false,
+                    owned_level_id: level_id,
+                })
+                .collect(),
             map,
             level_image: Default::default(),
         })
@@ -455,4 +518,40 @@ fn discover_layout(d2r: &D2RInstance, room: u64, px: u32, py: u32) -> Option<Lay
     }
     // collision works but no neighbour list: still map the room the player stands in
     Some(partial)
+}
+
+/// Look through a Room2 for a pointer to a room in another level: that is where its warp leads.
+fn warp_destination(d2r: &D2RInstance, room2: u64, own_level: u32, allowed: Option<&[u32]>) -> Option<u32> {
+    if !looks_like_ptr(room2) {
+        return None;
+    }
+    let r2 = d2r.read_bytes(room2, 0x100)?;
+    for off in (0..0x100).step_by(8) {
+        if off as u64 == ROOM2_TO_LEVEL {
+            continue;
+        }
+        let p = u64_at(&r2, off);
+        if !looks_like_ptr(p) {
+            continue;
+        }
+        let Some(block) = d2r.read_bytes(p, 0x18) else { continue };
+        for k in [0usize, 8, 16] {
+            let q = u64_at(&block, k);
+            if !looks_like_ptr(q) || q == room2 {
+                continue;
+            }
+            let lvl: u64 = d2r.read_mem::<u64>(q + ROOM2_TO_LEVEL);
+            if !looks_like_ptr(lvl) {
+                continue;
+            }
+            let id: u32 = d2r.read_mem::<u32>(lvl + LEVEL_TO_ID);
+            if id == 0 || id == own_level || id > 400 {
+                continue;
+            }
+            if allowed.map_or(true, |a| a.is_empty() || a.contains(&id)) {
+                return Some(id);
+            }
+        }
+    }
+    None
 }
