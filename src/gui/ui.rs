@@ -441,6 +441,18 @@ fn draw(app: &mut App, gfx: &mut Graphics, plugins: &mut Plugins, state: &mut St
                                             &this_level.name
                                         );
                                         this_level.level_image.map_image = Some(draw_map(gfx, this_level, &state.settings));
+                                        let exits: Vec<String> = this_level
+                                            .objects
+                                            .iter()
+                                            .filter(|o| o.object_type == "exit")
+                                            .map(|o| format!("{}@{},{}{}", o.id, o.x, o.y, if o.class.is_empty() { String::new() } else { format!("({})", o.class) }))
+                                            .collect();
+                                        let exit_pois = this_level.level_image.pois.iter().filter(|p| matches!(p.poi_type, crate::mapgeneration::pois::POIType::Exit | crate::mapgeneration::pois::POIType::GoodExit)).count();
+                                        log::info!(
+                                            "  level {} offset {},{} size {}x{} exits {:?} ({} exit markers), player at {:.0},{:.0}",
+                                            this_level.id, this_level.offset.x, this_level.offset.y, this_level.size.width, this_level.size.height,
+                                            exits, exit_pois, game_data.player.pos_x, game_data.player.pos_y
+                                        );
 
                                     }
                                     
