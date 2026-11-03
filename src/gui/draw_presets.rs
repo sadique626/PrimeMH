@@ -129,7 +129,7 @@ pub fn draw_presets(
                 draw_quest_item(poi, player_pos, draw, settings.visual.scale, width, height);
             }
             POIType::NPCSpawn => {
-                draw_npc_spawn(poi, player_pos, draw, settings.visual.scale, width, height);
+                draw_npc_spawn(poi, player_pos, draw, settings.visual.scale, width, height, all_fonts, settings);
             }
             POIType::Unknown => (),
         }
@@ -232,11 +232,34 @@ fn draw_super_chest(poi: &POI, player_pos: (f32, f32), draw: &mut Draw, scale: f
         .position(poi_pos.0 - (w / 2.5), poi_pos.1 - (h / 1.5));
 }
 
-fn draw_npc_spawn(poi: &POI, player_pos: (f32, f32), draw: &mut Draw, scale: f32, width: &f32, height: &f32) {
-    let size = (1.0 * scale, 1.0 * scale);
+#[allow(clippy::too_many_arguments)]
+fn draw_npc_spawn(poi: &POI, player_pos: (f32, f32), draw: &mut Draw, scale: f32, width: &f32, height: &f32, all_fonts: &Fonts, settings: &Settings) {
+    if poi.label.is_empty() {
+        let size = (1.0 * scale, 1.0 * scale);
+        let unit_pos = (poi.world_x as f32, poi.world_y as f32);
+        let poi_pos = transform_position(unit_pos, size, player_pos, scale, width, height);
+        draw.rect(poi_pos, size).color(Color::from_rgb(255.0, 0.0, 0.0));
+        return;
+    }
+    // named boss / super unique spawn: red diamond with its name above
+    let size = (6.0 * scale, 3.0 * scale);
     let unit_pos = (poi.world_x as f32, poi.world_y as f32);
     let poi_pos = transform_position(unit_pos, size, player_pos, scale, width, height);
-    draw.rect(poi_pos, size).color(Color::from_rgb(255.0, 0.0, 0.0));
+    draw_diamond(draw, poi_pos, size, Color::from_rgb(1.0, 0.15, 0.15));
+    let font = all_fonts.get_safe_font(&settings.general.language);
+    let text_pos = (poi_pos.0 + (size.0 / 2.0), (poi_pos.1 + (size.1 / 2.0)) - (6.0 * scale));
+    draw.text(&font, &poi.label)
+        .position(text_pos.0 + 2.0, text_pos.1 + 2.0)
+        .size(settings.visual.exit_label_text_size * scale)
+        .color(Color::BLACK)
+        .h_align_center()
+        .v_align_middle();
+    draw.text(&font, &poi.label)
+        .position(text_pos.0, text_pos.1)
+        .size(settings.visual.exit_label_text_size * scale)
+        .color(Color::from_rgb(1.0, 0.4, 0.4))
+        .h_align_center()
+        .v_align_middle();
 }
 
 fn draw_shrine(poi: &POI, player_pos: (f32, f32), draw: &mut Draw, settings: &Settings, image: &Texture, width: &f32, height: &f32, all_fonts: &Fonts) {
