@@ -143,6 +143,27 @@ impl DropLog {
         s.replace("ÿc", "")
     }
 
+    /// A few fake lines so the position and size can be adjusted without waiting for a drop.
+    pub fn add_samples(&mut self) {
+        let mut picks: Vec<(String, String, bool, bool)> = vec![];
+        if let Some(u) = self.catalog.iter().find(|c| !c.set) {
+            picks.push((u.name.clone(), u.base.clone(), false, false));
+        }
+        if let Some(c) = self.catalog.iter().find(|c| c.set) {
+            picks.push((c.name.clone(), c.base.clone(), true, false));
+        }
+        if let Some(u) = self.catalog.iter().filter(|c| !c.set).nth(5) {
+            picks.push((u.name.clone(), u.base.clone(), false, true));
+        }
+        if picks.is_empty() {
+            picks.push(("Sample unique".into(), "Sample base".into(), false, false));
+        }
+        for (name, base, set, watched) in picks {
+            self.entries.insert(0, Drop { unit_id: u32::MAX, name, base, set, watched, at: Instant::now() });
+        }
+        self.entries.truncate(MAX_ENTRIES);
+    }
+
     pub fn update(&mut self, game_data: Option<&GameData>, settings: &Settings) {
         if !settings.drop_log.enabled {
             return;
@@ -193,12 +214,12 @@ impl DropLog {
         }
         let font = fonts.get_safe_font(&settings.general.language);
         let size = settings.drop_log.text_size;
-        let x = width * 0.99;
+        let x = width * settings.drop_log.pos_x;
         let mut y = height * settings.drop_log.pos_y;
         let on_ground: HashSet<u32> = game_data.ground_items.iter().map(|i| i.unit_id).collect();
         for e in self.entries.iter() {
             // dim the ones that have been picked up (no longer on the ground)
-            let a = if on_ground.contains(&e.unit_id) { 1.0 } else { 0.45 };
+            let a = if e.unit_id == u32::MAX || on_ground.contains(&e.unit_id) { 1.0 } else { 0.45 };
             let colour = if e.set { Color::from_rgba(0.30, 0.76, 0.22, a) } else { Color::from_rgba(0.78, 0.72, 0.56, a) };
             let mut line = if e.base.is_empty() { e.name.clone() } else { format!("{}  ({})", e.name, e.base) };
             if e.watched {

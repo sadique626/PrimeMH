@@ -356,7 +356,17 @@ pub fn create_egui_panel(app: &mut App, ctx: &Context, state: &mut State, hwnd: 
                     ui.add(egui::DragValue::new(&mut state.settings.drop_log.duration_secs).range(5..=3600).speed(5));
                     ui.end_row();
                     ui.label("Drop log text size");
-                    ui.add(egui::DragValue::new(&mut state.settings.drop_log.text_size).range(6.0..=40.0).speed(0.5));
+                    ui.add(egui::Slider::new(&mut state.settings.drop_log.text_size, 8.0..=48.0).step_by(1.0));
+                    ui.end_row();
+                    ui.label("Drop log left / right");
+                    ui.add(egui::Slider::new(&mut state.settings.drop_log.pos_x, 0.10..=1.0).show_value(false));
+                    ui.end_row();
+                    ui.label("Drop log up / down");
+                    ui.add(egui::Slider::new(&mut state.settings.drop_log.pos_y, 0.0..=0.95).show_value(false));
+                    ui.end_row();
+                    if ui.button("Show sample drops").clicked() {
+                        state.drop_log.add_samples();
+                    }
                     ui.end_row();
                     ui.label("Run timer and stats");
                     ui.add(egui::Checkbox::new(&mut state.settings.run_stats.enabled, ""));
