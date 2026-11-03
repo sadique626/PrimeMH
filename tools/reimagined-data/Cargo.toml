@@ -1,0 +1,18 @@
+[package]
+name = "reimagined-data"
+version = "0.1.0"
+edition = "2021"
+description = "Searchable D2R Reimagined item data with website-style tooltips"
+publish = false
+
+[[bin]]
+name = "ReimaginedData"
+path = "src/main.rs"
+
+[dependencies]
+eframe = "0.31"
+serde_json = "1"
+winapi = { version = "0.3.9", features = ["winuser", "windef"] }
+
+[profile.release]
+opt-level = 3
