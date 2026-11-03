@@ -13,6 +13,7 @@ use winapi::um::wincon::{AttachConsole, ATTACH_PARENT_PROCESS};
 
 mod gui;
 mod livemap;
+mod runstats;
 mod localisation;
 mod mapgeneration;
 mod memory;

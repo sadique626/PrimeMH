@@ -97,6 +97,22 @@ impl Default for BuffBar {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[allow(unused)]
+pub struct RunStatsSettings {
+    pub enabled: bool,
+    /// where the block sits, as a fraction of the window (right edge of the text)
+    pub pos_x: f32,
+    pub pos_y: f32,
+    pub text_size: f32,
+}
+
+impl Default for RunStatsSettings {
+    fn default() -> Self {
+        RunStatsSettings { enabled: true, pos_x: 0.99, pos_y: 0.18, text_size: 14.0 }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[allow(unused)]
 pub struct PartyInfo {
     pub enabled: bool,
     /// line to party members in your area, arrow + area name for those elsewhere
@@ -449,6 +465,8 @@ pub struct Settings {
     pub hotkeys: HotKeys,
     #[serde(default)]
     pub party_info: PartyInfo,
+    #[serde(default)]
+    pub run_stats: RunStatsSettings,
 }
 
 impl Default for Settings {
@@ -467,6 +485,7 @@ impl Default for Settings {
             item_hover: ItemToolTip::default(),
             hotkeys: HotKeys::default(),
             party_info: PartyInfo::default(),
+            run_stats: RunStatsSettings::default(),
         }
     }
 }

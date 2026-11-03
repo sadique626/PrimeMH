@@ -193,6 +193,7 @@ fn init(gfx: &mut Graphics) -> State {
         checked: false,
         instance_locked: None,
         live_map: Default::default(),
+        run_stats: Default::default(),
         
     }
 }
@@ -223,6 +224,7 @@ pub(crate) struct State {
     pub checked: bool,
     pub instance_locked: Option<HWND>,
     pub live_map: crate::livemap::LiveMap,
+    pub run_stats: crate::runstats::RunStats,
 }
 
 fn update(app: &mut App, state: &mut State) {
@@ -297,10 +299,12 @@ fn update(app: &mut App, state: &mut State) {
                 state.live_map.log_units(game_data.seed_values.level, &game_data.npcs);
                 snap_exits_to_warps(&mut state.seed_data, &game_data);
                 state.game_data = Some(game_data);
+                state.run_stats.update(state.game_data.as_ref());
             } else {
                 if state.game_data.is_some() {
                     log::debug!("Game data not found, in menu");
                 }
+                state.run_stats.update(None);
                 state.game_data = None;
             }
 
@@ -511,6 +515,7 @@ fn draw(app: &mut App, gfx: &mut Graphics, plugins: &mut Plugins, state: &mut St
                             draw.mask(None);
 
                             draw_buff_bar(&mut draw, game_data, &state.settings, &state.fonts, &mut d2rprocess.buff_instance, game_data.menus.skill_popover_visible, &app.window().width(), &app.window().height(), &state.images);
+                            state.run_stats.draw(&mut draw, &state.settings, &state.fonts, app.window().width() as f32, app.window().height() as f32);
                             draw_party_info(&mut draw, game_data, &state.fonts.formal_font, game_data.menus.party_portaits, &state.settings.party_info, &app.window().width(), &app.window().height());
 
                             state.item_frame += 1;
