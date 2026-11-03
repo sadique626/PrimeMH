@@ -294,6 +294,7 @@ fn update(app: &mut App, state: &mut State) {
                     state.seed_data.process_map_data();
                 }
                 state.live_map.log_units(game_data.seed_values.level, &game_data.npcs);
+                snap_exits_to_warps(&mut state.seed_data, &game_data);
                 state.game_data = Some(game_data);
             } else {
                 if state.game_data.is_some() {
@@ -601,3 +602,41 @@ fn mouse_hovering_egui(relative_mouse_pos: (i32, i32), egui_rect: Rect, dpi: f64
         && relative_mouse_pos.1 < (egui_rect.bottom() * dpi as f32) as i32
 }
 
+
+/// Exit markers from libd2 sit in the middle of the room holding the warp. Once the game has
+/// that room loaded, the warp itself (stairs, door, cave mouth) is in the unit table as a tile,
+/// so move the marker of the matching exit onto it.
+fn snap_exits_to_warps(seed_data: &mut crate::mapgeneration::jsondata::SeedData, game_data: &GameData) {
+    use crate::mapgeneration::pois::POIType;
+    if game_data.warp_tiles.is_empty() {
+        return;
+    }
+    for level in seed_data.levels.iter_mut() {
+        let (ox, oy) = (level.offset.x, level.offset.y);
+        let (w, h) = (level.size.width, level.size.height);
+        for &(tx, ty) in &game_data.warp_tiles {
+            if tx < ox || ty < oy || tx >= ox + w || ty >= oy + h {
+                continue;
+            }
+            let best = level
+                .level_image
+                .pois
+                .iter_mut()
+                .filter(|p| matches!(p.poi_type, POIType::Exit | POIType::GoodExit) && p.class != "walkable")
+                // leave markers already sitting on a different warp alone
+                .filter(|p| !game_data.warp_tiles.iter().any(|&(ax, ay)| (ax, ay) != (tx, ty) && p.world_x == ax && p.world_y == ay))
+                .map(|p| {
+                    let d = (p.world_x as i64 - tx as i64).abs() + (p.world_y as i64 - ty as i64).abs();
+                    (d, p)
+                })
+                .filter(|(d, _)| *d <= 60)
+                .min_by_key(|(d, _)| *d);
+            if let Some((_, poi)) = best {
+                poi.world_x = tx;
+                poi.world_y = ty;
+                poi.pos_x = (tx - ox) as f32;
+                poi.pos_y = (ty - oy) as f32;
+            }
+        }
+    }
+}

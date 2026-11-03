@@ -118,7 +118,8 @@ fn convert_level(level: &LevelRef<'_>, map_seed: u32) -> Option<LevelData> {
     let map: Vec<Vec<u64>> = (y0..=y1)
         .map(|y| encode_row((x0..=x1).map(|x| is_blocked(cells[y * width + x]))))
         .collect();
-    let objects: Vec<Object> = convert_presets(level, map_seed)
+    let walk = Walk { cells, width, height };
+    let objects: Vec<Object> = convert_presets(level, map_seed, &walk)
         .into_iter()
         .filter(|o| (o.x as usize) >= x0 && (o.x as usize) <= x1 && (o.y as usize) >= y0 && (o.y as usize) <= y1)
         .map(|mut o| {
@@ -212,7 +213,7 @@ fn dist(ax: i32, ay: i32, bx: i32, by: i32) -> i32 {
     (ax - bx).abs() + (ay - by).abs()
 }
 
-fn convert_presets(level: &LevelRef<'_>, map_seed: u32) -> Vec<Object> {
+fn convert_presets(level: &LevelRef<'_>, map_seed: u32, walk: &Walk) -> Vec<Object> {
     let presets = level.presets().unwrap_or_default();
     let adjacents = level.adjacents().unwrap_or_default();
     let level_id = level.id().0;
@@ -288,27 +289,133 @@ fn convert_presets(level: &LevelRef<'_>, map_seed: u32) -> Vec<Object> {
 
     for (dest, pts) in clusters {
         let n = pts.len() as i32;
-        let mut x = pts.iter().map(|p| p.0).sum::<i32>() / n;
-        let mut y = pts.iter().map(|p| p.1).sum::<i32>() / n;
-        // if a warp tile sits close by, use the warp's exact spot instead of the room centre
+        let mx = pts.iter().map(|p| p.0).sum::<i32>() / n;
+        let my = pts.iter().map(|p| p.1).sum::<i32>() / n;
+        let is_good_exit = level_id == 46 && dest == staff_tomb;
+
+        // Walk-across border: libd2 reports every pair of rooms that touch across the seam,
+        // not just the ones you can walk through, so the middle of those rooms can be far from
+        // the real gap. Find the open stretch(es) of floor on that edge of the map instead.
+        if let Some(edge) = walk.border_edge(&pts) {
+            let crossings = walk.crossings(edge, &pts);
+            for (x, y) in crossings {
+                objects.push(exit_object(dest, x, y, "walkable", is_good_exit, level_id));
+            }
+            continue;
+        }
+
+        // Warp (stairs, cave mouth, door): the room centre, or a warp tile near it if libd2 has
+        // one. PrimeMH moves the marker onto the real warp once the game has it loaded.
+        let (mut x, mut y) = (mx, my);
         if let Some(&(wx, wy)) = warp_spots.iter().filter(|w| dist(w.0, w.1, x, y) <= 30).min_by_key(|w| dist(w.0, w.1, x, y)) {
             x = wx;
             y = wy;
         }
-        objects.push(Object {
-            id: dest as u32,
-            object_type: "exit".to_owned(),
-            x: x as u32,
-            y: y as u32,
-            name: String::new(),
-            class: String::new(),
-            op: 0,
-            // Canyon of the Magi: mark the tomb that holds the real Tal Rasha's chamber
-            is_good_exit: level_id == 46 && dest == staff_tomb,
-            owned_level_id: level_id as u32,
-        });
+        objects.push(exit_object(dest, x, y, "", is_good_exit, level_id));
     }
     objects
+}
+
+fn exit_object(dest: i32, x: i32, y: i32, class: &str, is_good_exit: bool, level_id: i32) -> Object {
+    Object {
+        id: dest as u32,
+        object_type: "exit".to_owned(),
+        x: x.max(0) as u32,
+        y: y.max(0) as u32,
+        name: String::new(),
+        class: class.to_owned(),
+        op: 0,
+        is_good_exit,
+        owned_level_id: level_id as u32,
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Edge {
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
+/// The level's collision, for finding where its borders are open.
+struct Walk<'a> {
+    cells: &'a [Collision],
+    width: usize,
+    height: usize,
+}
+
+impl Walk<'_> {
+    fn open(&self, x: i32, y: i32) -> bool {
+        if x < 0 || y < 0 || x as usize >= self.width || y as usize >= self.height {
+            return false;
+        }
+        !is_blocked(self.cells[y as usize * self.width + x as usize])
+    }
+
+    /// If these crossing points all hug one edge of the level, that edge (a walk-across border).
+    fn border_edge(&self, pts: &[(i32, i32)]) -> Option<Edge> {
+        const NEAR: i32 = 30; // border rooms are 40 subtiles, so their centre sits ~20 in
+        let (w, h) = (self.width as i32, self.height as i32);
+        let all = |f: &dyn Fn(&(i32, i32)) -> bool| pts.iter().all(f);
+        if all(&|p| p.0 <= NEAR) {
+            Some(Edge::Left)
+        } else if all(&|p| p.0 >= w - 1 - NEAR) {
+            Some(Edge::Right)
+        } else if all(&|p| p.1 <= NEAR) {
+            Some(Edge::Top)
+        } else if all(&|p| p.1 >= h - 1 - NEAR) {
+            Some(Edge::Bottom)
+        } else {
+            None
+        }
+    }
+
+    /// Centres of the open stretches along `edge`, within the span of the touching rooms.
+    fn crossings(&self, edge: Edge, pts: &[(i32, i32)]) -> Vec<(i32, i32)> {
+        let (w, h) = (self.width as i32, self.height as i32);
+        let along: Vec<i32> = pts.iter().map(|p| if matches!(edge, Edge::Left | Edge::Right) { p.1 } else { p.0 }).collect();
+        let limit = if matches!(edge, Edge::Left | Edge::Right) { h } else { w };
+        let lo = (along.iter().min().copied().unwrap_or(0) - 25).max(0);
+        let hi = (along.iter().max().copied().unwrap_or(0) + 25).min(limit - 1);
+        // a cell on the edge counts as open if any of the outermost 3 rows/columns is floor there
+        let open_at = |t: i32| -> bool {
+            (0..3).any(|d| match edge {
+                Edge::Left => self.open(d, t),
+                Edge::Right => self.open(w - 1 - d, t),
+                Edge::Top => self.open(t, d),
+                Edge::Bottom => self.open(t, h - 1 - d),
+            })
+        };
+        let mut runs: Vec<(i32, i32)> = Vec::new(); // (start, end) inclusive
+        let mut t = lo;
+        while t <= hi {
+            if open_at(t) {
+                let start = t;
+                while t <= hi && open_at(t) {
+                    t += 1;
+                }
+                // join stretches split by a stray tree or rock
+                match runs.last_mut() {
+                    Some(last) if start - last.1 <= 8 => last.1 = t - 1,
+                    _ => runs.push((start, t - 1)),
+                }
+            }
+            t += 1;
+        }
+        runs.into_iter()
+            .filter(|(a, b)| b - a + 1 >= 3)
+            .map(|(a, b)| {
+                let mid = (a + b) / 2;
+                match edge {
+                    Edge::Left => (2, mid),
+                    Edge::Right => (w - 3, mid),
+                    Edge::Top => (mid, 2),
+                    Edge::Bottom => (mid, h - 3),
+                }
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]

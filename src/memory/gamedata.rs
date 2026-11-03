@@ -17,6 +17,8 @@ pub struct GameData {
     pub menus: MenuStates,
     pub last_hovered: LastHovered,
     pub keybindings: KeyBindings,
+    /// world positions of warp tiles (stairs, doors, cave mouths) in the rooms the game has loaded
+    pub warp_tiles: Vec<(u32, u32)>,
 }
 
 impl GameData {
@@ -59,6 +61,11 @@ impl GameData {
         let last_hovered: LastHovered = LastHovered::get_hovered(d2rprocess);
 
         let keybindings: KeyBindings = KeyBindings::new(d2rprocess);
+        let warp_tiles: Vec<(u32, u32)> = crate::types::get_raw_units(d2rprocess, unit_ptrs.tile_ptrs)
+            .into_iter()
+            .map(|u| crate::types::get_static_position(d2rprocess, u))
+            .filter(|p| p.0 > 0 && p.1 > 0)
+            .collect();
         
 
         Some(GameData {
@@ -73,6 +80,7 @@ impl GameData {
             menus,
             last_hovered,
             keybindings,
+            warp_tiles,
         })
     }
 
