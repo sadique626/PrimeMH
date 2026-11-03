@@ -194,12 +194,69 @@ fn read(dir: &Path, name: &str) -> Vec<Value> {
         .unwrap_or_default()
 }
 
+/// Rows of magicprefix.txt / magicsuffix.txt as (name, level). A cube recipe's "pre=N" /
+/// "suf=N" is the Nth data row (0-based, header excluded).
+fn affix_rows(dir: &Path, file: &str) -> Vec<(String, f64)> {
+    let Ok(text) = std::fs::read(dir.join(file)) else { return vec![] };
+    let text: String = text.iter().map(|b| *b as char).collect(); // latin-1
+    let mut lines = text.lines();
+    let header: Vec<&str> = lines.next().unwrap_or("").split('\t').collect();
+    let level_col = header.iter().position(|h| h.eq_ignore_ascii_case("level")).unwrap_or(5);
+    lines
+        .map(|l| {
+            let c: Vec<&str> = l.split('\t').collect();
+            (c.first().unwrap_or(&"").to_string(), c.get(level_col).and_then(|v| v.trim().parse().ok()).unwrap_or(-1.0))
+        })
+        .collect()
+}
+
+/// "Force Prefix (365)" -> "Force Prefix: Coral (+15-20% Lightning Resist)"
+struct AffixNames {
+    prefixes: Vec<(String, f64)>,
+    suffixes: Vec<(String, f64)>,
+    /// (json file, name, level) -> rendered stat lines
+    lines: std::collections::HashMap<(bool, String, i64), String>,
+}
+
+impl AffixNames {
+    fn describe(&self, st: &Strings, q: &Value) -> Option<String> {
+        let key = s(q, "key");
+        let prefix = match key {
+            "strCubeQualifierForcePrefixN" => true,
+            "strCubeQualifierForceSuffixN" => false,
+            _ => return None,
+        };
+        let n = q.get("args").and_then(|a| a.get(0)).and_then(|a| a.as_f64())? as usize;
+        let (name, level) = if prefix { self.prefixes.get(n)? } else { self.suffixes.get(n)? };
+        let label = if prefix { "Force Prefix" } else { "Force Suffix" };
+        let stats = self.lines.get(&(prefix, name.clone(), *level as i64)).cloned().unwrap_or_default();
+        let shown = st.get(name);
+        Some(if stats.is_empty() { format!("{}: {}", label, shown) } else { format!("{}: {} ({})", label, shown, stats) })
+    }
+}
+
 pub fn load(dir: &Path) -> Result<(Strings, Vec<Entry>), String> {
     let game = std::fs::read_to_string(dir.join("strings").join("enUS.json"))
         .map_err(|e| format!("could not read {}: {}", dir.join("strings").join("enUS.json").display(), e))?;
     let ui = std::fs::read_to_string(dir.join("ui-strings.ts")).unwrap_or_default();
     let st = Strings::load(&game, &ui);
     let mut out: Vec<Entry> = Vec::new();
+
+    let mut affixes = AffixNames {
+        prefixes: affix_rows(dir, "magicprefix.txt"),
+        suffixes: affix_rows(dir, "magicsuffix.txt"),
+        lines: std::collections::HashMap::new(),
+    };
+    for (prefix, file) in [(true, "magicprefix.json"), (false, "magicsuffix.json")] {
+        for a in read(dir, file) {
+            let text: Vec<String> = match a.get("Lines") {
+                Some(Value::Array(l)) => l.iter().map(|x| st.line(x)).filter(|t| !t.trim().is_empty()).collect(),
+                _ => vec![],
+            };
+            let lvl = n(&a, "Level").unwrap_or(-1.0) as i64;
+            affixes.lines.insert((prefix, s(&a, "NameKey").to_string(), lvl), text.join(", "));
+        }
+    }
 
     // uniques
     for u in read(dir, "uniques.json") {
@@ -320,7 +377,7 @@ pub fn load(dir: &Path) -> Result<(Strings, Vec<Entry>), String> {
                 Some(Value::Array(q)) => q
                     .iter()
                     .filter(|x| s(x, "key") != "strCubeQualifierQuantityN")
-                    .map(|x| format!(" [{}]", st.line(x)))
+                    .map(|x| format!(" [{}]", affixes.describe(&st, x).unwrap_or_else(|| st.line(x))))
                     .collect(),
                 _ => String::new(),
             }

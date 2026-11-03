@@ -187,6 +187,26 @@ fn strip_gender(v: &str) -> String {
 impl Strings {
     pub fn load(game_strings: &str, ui_strings_ts: &str) -> Strings {
         let mut map: HashMap<String, String> = HashMap::new();
+        // Potion codes whose game string is only part of the name (e.g. "rvs" is just "35%")
+        for (k, v) in [
+            ("rvs", "Rejuvenation Potion"),
+            ("rvl", "Full Rejuvenation Potion"),
+            ("hp1", "Minor Healing Potion"),
+            ("hp2", "Light Healing Potion"),
+            ("hp3", "Healing Potion"),
+            ("hp4", "Greater Healing Potion"),
+            ("hp5", "Super Healing Potion"),
+            ("mp1", "Minor Mana Potion"),
+            ("mp2", "Light Mana Potion"),
+            ("mp3", "Mana Potion"),
+            ("mp4", "Greater Mana Potion"),
+            ("mp5", "Super Mana Potion"),
+            ("yps", "Antidote Potion"),
+            ("wms", "Thawing Potion"),
+            ("vps", "Stamina Potion"),
+        ] {
+            map.insert(k.to_string(), v.to_string());
+        }
         // ui-strings.ts: take the 'enUS': { 'key': 'value', ... } block
         if let Some(start) = ui_strings_ts.find("'enUS': {") {
             for line in ui_strings_ts[start + 9..].lines() {
