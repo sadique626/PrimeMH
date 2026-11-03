@@ -496,15 +496,28 @@ fn recipe_name(r: &Value, st: &Strings, affixes: &AffixNames) -> Option<String> 
             _ => return None,
         })
     };
-    let output = r.get("Outputs").and_then(|o| o.as_object()).and_then(|o| o.values().next())?;
+    // names picked by hand for recipes the rules can't describe well
+    const OVERRIDES: [(&str, &str); 1] = [("cr-7547ae5e57f884d2", "Warp Ring")];
+    if let Some((_, n)) = OVERRIDES.iter().find(|(id, _)| *id == s(r, "Id")) {
+        return Some(n.to_string());
+    }
+    // the real result: skip the "gem bag is given back" output that many recipes also have
+    let outputs: Vec<&Value> = r.get("Outputs").and_then(|o| o.as_object()).map(|o| o.values().collect()).unwrap_or_default();
+    let output = outputs
+        .iter()
+        .rev()
+        .find(|o| o.get("Name").map(|n| s(n, "key")) != Some("strCubeOutputReturnGemBag"))
+        .or(outputs.first())
+        .copied()?;
     let out_key = output.get("Name").map(|n| s(n, "key")).unwrap_or("");
     let notes: Vec<&str> = match r.get("Notes") {
         Some(Value::Array(n)) => n.iter().map(|x| s(x, "key")).collect(),
         _ => vec![],
     };
     let action = notes.iter().find_map(|n| verb(n));
+    // the item being worked on: the first input that isn't the gem bag paying for it
     let input = match r.get("Inputs") {
-        Some(Value::Array(i)) => i.first(),
+        Some(Value::Array(i)) => i.iter().find(|x| x.get("Name").map(|n| s(n, "key")) != Some("bag")).or(i.first()),
         _ => None,
     };
     let join = |parts: Vec<String>| parts.into_iter().filter(|p| !p.is_empty()).collect::<Vec<_>>().join(" ");
@@ -550,12 +563,23 @@ fn recipe_name(r: &Value, st: &Strings, affixes: &AffixNames) -> Option<String> 
         return Some(format!("{}{}", head, detail));
     }
     // a specific item comes out
+    let out_code = output.get("Name").map(|n| s(n, "key")).unwrap_or("");
+    let out_known = st.has(out_code);
     let out_name = join(out_quals.iter().cloned().chain(std::iter::once(output.get("Name").map(|n| st.line(n)).unwrap_or_default())).collect());
     if !forced.is_empty() {
         return Some(join(vec![forced.join(" "), out_name]));
     }
+    let in_code = input.and_then(|i| i.get("Name")).map(|n| s(n, "key")).unwrap_or("");
+    // arrows / bolts back out of the cube = refilled
+    if matches!(out_code, "aqv" | "cqv") && in_code == out_code {
+        return Some(format!("Refill {}", subject));
+    }
     match action {
-        None | Some("Craft") => Some(format!("{}{}", out_name, detail)),
+        Some("Craft") => Some(format!("{}{}", out_name, detail)),
+        // nothing says what kind of recipe it is: it makes something
+        None => Some(format!("Create {}{}", out_name, detail)),
+        // same item back (reroll) or an internal name for the result: just say what is done to what
+        Some(a) if out_name == subject || !out_known => Some(format!("{} {}", a, subject)),
         Some(a) => Some(format!("{} {} → {}", a, subject, out_name)),
     }
 }

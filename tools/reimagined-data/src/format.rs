@@ -229,6 +229,11 @@ impl Strings {
         Strings { map }
     }
 
+    /// true if the key has real text (so it is not an internal name)
+    pub fn has(&self, key: &str) -> bool {
+        self.map.contains_key(key)
+    }
+
     pub fn get(&self, key: &str) -> String {
         if key.is_empty() {
             return String::new();
