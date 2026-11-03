@@ -308,12 +308,18 @@ fn convert_presets(level: &LevelRef<'_>, map_seed: u32, walk: &Walk) -> Vec<Obje
         // Walk-across border: libd2 reports every pair of rooms that touch across the seam,
         // not just the ones you can walk through, so the middle of those rooms can be far from
         // the real gap. Find the open stretch(es) of floor on that edge of the map instead.
-        if let Some(edge) = walk.border_edge(&pts) {
+        // Only outdoor levels have walk-across borders; in dungeons every link is a warp, even
+        // when its room happens to sit near the edge of the level's area.
+        let outdoor = matches!(level.kind(), LevelKind::Wilderness);
+        if let Some(edge) = walk.border_edge(&pts).filter(|_| outdoor) {
             let crossings = walk.crossings(edge, &pts);
-            for (x, y) in crossings {
-                objects.push(exit_object(dest, x, y, "walkable", is_good_exit, level_id));
+            if !crossings.is_empty() {
+                for (x, y) in crossings {
+                    objects.push(exit_object(dest, x, y, "walkable", is_good_exit, level_id));
+                }
+                continue;
             }
-            continue;
+            // no open stretch found on that edge: fall back to a plain marker below
         }
 
         // Warp (stairs, cave mouth, door): the room centre, or a warp tile near it if libd2 has
