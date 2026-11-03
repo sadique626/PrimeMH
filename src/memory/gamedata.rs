@@ -135,37 +135,72 @@ pub fn get_last_game_name(d2rprocess: &D2RInstance) -> String {
 /// Experience is stat 13. Each stat entry is { u16 layer, u16 stat, u32 value }; read the value
 /// as a whole u32, since experience is far beyond what a 16-bit stat value can hold.
 fn read_experience(d2rprocess: &D2RInstance, unit: &super::structs::Unit) -> Option<u32> {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static DIAG: AtomicU32 = AtomicU32::new(0);
     if unit.p_stats_list_ex == 0 {
+        if DIAG.fetch_add(1, Ordering::Relaxed) == 0 {
+            log::info!("XP diag: player has no stats list pointer");
+        }
         return None;
     }
-    let list: super::structs::StatsList = d2rprocess.read_mem(unit.p_stats_list_ex);
-    // every stat array we know of: the base list, the extended list, and the chain of
-    // stat lists hanging off the unit (where PrimeMH's own stat reader finds the player stats)
-    let mut arrays: Vec<(u64, u32)> = vec![(list.stat_ptr, list.stat_count), (list.stat_ex_ptr, list.stat_ex_count)];
-    let mut p = list.stat_unit_ptr;
-    for _ in 0..16 {
-        if p == 0 {
+    // Collect every (pointer, count) pair that could be a stat array: anything in the first
+    // 0x100 bytes of the stats list, plus the chain of stat lists hanging off it (+0x90).
+    let mut arrays: Vec<(String, u64, u32)> = vec![];
+    let scan = |base: u64, tag: &str, arrays: &mut Vec<(String, u64, u32)>| {
+        if let Some(b) = d2rprocess.read_bytes(base, 0x100) {
+            for off in (0..0xF0).step_by(8) {
+                let ptr = u64::from_le_bytes(b[off..off + 8].try_into().unwrap());
+                let cnt = u32::from_le_bytes(b[off + 8..off + 12].try_into().unwrap());
+                if ptr > 0x10000 && ptr < 0x7FFF_FFFF_FFFF && cnt > 0 && cnt <= 512 {
+                    arrays.push((format!("{}+0x{:X}", tag, off), ptr, cnt));
+                }
+            }
+        }
+    };
+    scan(unit.p_stats_list_ex, "list", &mut arrays);
+    let mut p = d2rprocess.read_mem::<u64>(unit.p_stats_list_ex + 0x90);
+    for i in 0..8 {
+        if p < 0x10000 || p == unit.p_stats_list_ex {
             break;
         }
-        arrays.push((d2rprocess.read_mem::<u64>(p + 0x30), d2rprocess.read_mem::<u32>(p + 0x38)));
+        scan(p, &format!("chain{}", i), &mut arrays);
         p = d2rprocess.read_mem::<u64>(p + 0x48);
     }
+    let n = DIAG.fetch_add(1, Ordering::Relaxed);
+    let diag = n < 3 || n % 3600 == 0;
     let mut best: Option<u32> = None;
-    for (ptr, count) in arrays {
-        if ptr == 0 || count == 0 || count > 1024 {
-            continue;
-        }
+    let mut any_xp: Option<u32> = None;
+    let mut report: Vec<String> = vec![];
+    for (tag, ptr, count) in arrays {
         let Some(bytes) = d2rprocess.read_bytes(ptr, count as usize * 8) else { continue };
+        let mut level = None;
+        let mut xp = None;
         for e in bytes.chunks_exact(8) {
-            let layer = u16::from_le_bytes([e[0], e[1]]);
             let stat = u16::from_le_bytes([e[2], e[3]]);
-            if stat == 13 && layer == 0 {
-                let v = u32::from_le_bytes([e[4], e[5], e[6], e[7]]);
-                best = Some(best.map_or(v, |b| b.max(v)));
+            let v = u32::from_le_bytes([e[4], e[5], e[6], e[7]]);
+            match stat {
+                12 => level = Some(v),
+                13 => xp = Some(xp.map_or(v, |x: u32| x.max(v))),
+                _ => {}
+            }
+        }
+        if diag && (level.is_some() || xp.is_some()) {
+            report.push(format!("{} n={} level={:?} xp={:?}", tag, count, level, xp));
+        }
+        if let Some(x) = xp {
+            any_xp = Some(any_xp.map_or(x, |b| b.max(x)));
+        }
+        // a real player stat array has the level next to the experience
+        if let (Some(l), Some(x)) = (level, xp) {
+            if (1..=200).contains(&l) {
+                best = Some(best.map_or(x, |b| b.max(x)));
             }
         }
     }
-    best
+    if diag {
+        log::info!("XP diag: {}", if report.is_empty() { "no stat array with level/xp found".to_string() } else { report.join(" | ") });
+    }
+    best.or(any_xp)
 }
 
 /// Items on the ground (mode 3) or dropping (mode 5). ItemData: quality at 0x00, file index at 0x34.
