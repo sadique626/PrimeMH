@@ -334,7 +334,8 @@ fn main() -> eframe::Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_title("Reimagined Data")
             .with_inner_size(FULL_SIZE)
-            .with_always_on_top(),
+            .with_always_on_top()
+            .with_icon(eframe::icon_data::from_png_bytes(include_bytes!("../icon.png")).unwrap_or_default()),
         ..Default::default()
     };
     eframe::run_native("Reimagined Data", options, Box::new(|cc| Ok(Box::new(App::new(cc)))))
