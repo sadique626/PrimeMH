@@ -111,7 +111,7 @@ fn init(gfx: &mut Graphics) -> State {
         let localisation = LOCALISATION.lock().unwrap();
         log::error!("{}", localisation.get_primemh("error12"))
     }
-    let d2rinstances: Vec<D2RInstance> = windows.iter().map(|window| D2RInstance::new(&window)).collect();
+    let d2rinstances: Vec<D2RInstance> = windows.iter().filter_map(|window| D2RInstance::try_new(&window)).collect();
 
     let exocet_font = gfx.create_font(include_bytes!("./fonts/exocet.otf")).expect("Could not load exocet font!");
     let formal_font = gfx.create_font(include_bytes!("./fonts/formal.otf")).expect("Could not load formal font!");
@@ -192,6 +192,8 @@ fn init(gfx: &mut Graphics) -> State {
         last_map_opacity,
         checked: false,
         instance_locked: None,
+        last_game_scan: std::time::Instant::now(),
+        pending_games: HashMap::new(),
         live_map: Default::default(),
         run_stats: Default::default(),
         drop_log: Default::default(),
@@ -227,9 +229,57 @@ pub(crate) struct State {
     pub live_map: crate::livemap::LiveMap,
     pub run_stats: crate::runstats::RunStats,
     pub drop_log: crate::droplog::DropLog,
+    pub last_game_scan: std::time::Instant,
+    /// game windows seen but not attached yet, with when they were first seen
+    pub pending_games: HashMap<u32, std::time::Instant>,
+}
+
+/// Every few seconds: forget games that were closed and attach to newly started ones,
+/// so PrimeMH does not have to be restarted along with the game.
+fn rescan_games(state: &mut State) {
+    if state.last_game_scan.elapsed() < Duration::from_secs(3) {
+        return;
+    }
+    state.last_game_scan = std::time::Instant::now();
+    let before = state.d2rinstances.len();
+    state.d2rinstances.retain(|i| {
+        let alive = i.is_alive();
+        if !alive {
+            log::info!("D2R (pid {}) closed - waiting for it to start again", i.window.pid);
+            i.close();
+        }
+        alive
+    });
+    if state.d2rinstances.len() != before {
+        state.game_data = None;
+        if let Some(locked) = state.instance_locked {
+            if !state.d2rinstances.iter().any(|i| i.window.hwnd == locked) {
+                state.instance_locked = None;
+            }
+        }
+    }
+    let windows: Vec<WindowInfo> = get_process_pid_and_window_handle();
+    let known: Vec<u32> = state.d2rinstances.iter().map(|i| i.window.pid).collect();
+    state.pending_games.retain(|pid, _| windows.iter().any(|w| w.pid == *pid));
+    for w in windows.iter() {
+        if known.contains(&w.pid) {
+            continue;
+        }
+        // give the game (and D2RLoader) a few seconds to finish starting before attaching
+        let first_seen = *state.pending_games.entry(w.pid).or_insert_with(std::time::Instant::now);
+        if first_seen.elapsed() < Duration::from_secs(8) {
+            continue;
+        }
+        if let Some(instance) = D2RInstance::try_new(w) {
+            log::info!("Attached to D2R window '{}' (pid {})", w.title, w.pid);
+            state.pending_games.remove(&w.pid);
+            state.d2rinstances.push(instance);
+        }
+    }
 }
 
 fn update(app: &mut App, state: &mut State) {
+    rescan_games(state);
    
     let instance_locked = state.instance_locked.clone();
     let d2rprocess = state.d2rinstances.iter_mut().find(|instance| instance.is_window_active(app.window().id(), instance_locked));

@@ -55,6 +55,39 @@ pub struct D2RWindowArea {
 }
 
 impl D2RInstance {
+    /// Attach without panicking (used when the game is restarted while PrimeMH keeps running).
+    pub fn try_new(window: &WindowInfo) -> Option<Self> {
+        let handle: HANDLE = unsafe { OpenProcess(PROCESS_ALL_ACCESS, FALSE, window.pid) };
+        if handle == NULL {
+            log::warn!("Could not open D2R process {} yet: {:?}", window.pid, std::io::Error::last_os_error());
+            return None;
+        }
+        let Some(base_address) = Self::base_address(handle) else {
+            unsafe { CloseHandle(handle) };
+            return None;
+        };
+        Some(Self {
+            window: (*window).clone(),
+            handle,
+            base_address,
+            offsets: Self::find_offsets(window.pid),
+            buff_instance: BuffInstance::new((*window).clone()),
+        })
+    }
+
+    /// True while the game process is running and its window still exists.
+    pub fn is_alive(&self) -> bool {
+        let mut code: DWORD = 0;
+        let ok = unsafe { winapi::um::processthreadsapi::GetExitCodeProcess(self.handle, &mut code) };
+        let window_ok = unsafe { winapi::um::winuser::IsWindow(self.window.hwnd) } != 0;
+        ok != 0 && code == 259 /* STILL_ACTIVE */ && window_ok
+    }
+
+    /// Close the process handle (call once, when the instance is dropped from the list).
+    pub fn close(&self) {
+        unsafe { CloseHandle(self.handle) };
+    }
+
     pub fn new(window: &WindowInfo) -> Self {
         // https://docs.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-openprocess?redirectedfrom=MSDN
         let pid: u32 = window.pid;
