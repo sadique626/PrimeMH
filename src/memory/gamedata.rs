@@ -172,22 +172,44 @@ fn read_experience(d2rprocess: &D2RInstance, unit: &super::structs::Unit) -> Opt
     let mut any_xp: Option<u32> = None;
     let mut report: Vec<String> = vec![];
     for (tag, ptr, count) in arrays {
-        let Some(bytes) = d2rprocess.read_bytes(ptr, count as usize * 8) else { continue };
+        // D2RLoader stores 12-byte stat entries {u16 stat, u16 layer, u32 value, u32 extra};
+        // the original game uses 8-byte {u16 layer, u16 stat, u32 value}. Try both.
+        let Some(bytes) = d2rprocess.read_bytes(ptr, count as usize * 12) else { continue };
         let mut level = None;
         let mut xp = None;
-        for e in bytes.chunks_exact(8) {
-            let stat = u16::from_le_bytes([e[2], e[3]]);
-            let v = u32::from_le_bytes([e[4], e[5], e[6], e[7]]);
-            match stat {
-                12 => level = Some(v),
-                13 => xp = Some(xp.map_or(v, |x: u32| x.max(v))),
-                _ => {}
+        let mut layout = "";
+        for (stride, stat_at, name) in [(12usize, 0usize, "12-byte"), (8, 2, "8-byte")] {
+            let mut l = None;
+            let mut x = None;
+            for e in bytes.chunks_exact(stride).take(count as usize) {
+                let stat = u16::from_le_bytes([e[stat_at], e[stat_at + 1]]);
+                let other = if stat_at == 0 { u16::from_le_bytes([e[2], e[3]]) } else { u16::from_le_bytes([e[0], e[1]]) };
+                if other != 0 {
+                    continue; // layer must be 0 for level / experience
+                }
+                let v = u32::from_le_bytes([e[4], e[5], e[6], e[7]]);
+                match stat {
+                    12 => l = Some(v),
+                    13 => x = Some(x.map_or(v, |o: u32| o.max(v))),
+                    _ => {}
+                }
+            }
+            if l.map_or(false, |v| (1..=200).contains(&v)) && x.is_some() {
+                level = l;
+                xp = x;
+                layout = name;
+                break;
+            }
+            if xp.is_none() && x.is_some() {
+                level = l;
+                xp = x;
+                layout = name;
             }
         }
         if diag && (level.is_some() || xp.is_some()) {
-            report.push(format!("{} n={} level={:?} xp={:?}", tag, count, level, xp));
+            report.push(format!("{} n={} {} level={:?} xp={:?}", tag, count, layout, level, xp));
         }
-        if let Some(x) = xp {
+        if let (Some(x), true) = (xp, tag == "list+0x30" || tag == "list+0xA8") {
             any_xp = Some(any_xp.map_or(x, |b| b.max(x)));
         }
         // a real player stat array has the level next to the experience
